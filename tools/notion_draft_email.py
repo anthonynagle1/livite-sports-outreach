@@ -130,7 +130,9 @@ def get_game_details(notion, game_page_id):
             # Format date nicely
             try:
                 dt = datetime.fromisoformat(game_data['game_date'])
-                game_data['game_date_formatted'] = dt.strftime('%B %-d')
+                day = dt.day
+                suffix = 'th' if 11 <= day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+                game_data['game_date_formatted'] = '{} {}{}'.format(dt.strftime('%B'), day, suffix)
             except:
                 game_data['game_date_formatted'] = game_data['game_date']
         else:
@@ -176,6 +178,11 @@ def get_game_details(notion, game_page_id):
             )
             game_data['contact_email'] = contact_props.get('Email', {}).get('email', '')
 
+            # Check if this is a returning contact (has been emailed before)
+            last_emailed = contact_props.get('Last Emailed', {}).get('date')
+            first_emailed = contact_props.get('First Emailed', {}).get('date')
+            game_data['is_returning'] = bool(last_emailed or first_emailed)
+
         return game_data
 
     except APIResponseError as e:
@@ -183,28 +190,48 @@ def get_game_details(notion, game_page_id):
         return None
 
 
-def find_template(notion, templates_db, sport=None, sequence_step=1):
+def find_template(notion, templates_db, sport=None, sequence_step=1, sequence_type='Cold'):
     """
     Find an appropriate email template.
 
-    First tries to match sport, then falls back to generic template.
+    Matches sequence_type (Cold vs Returning), then sport, then falls back.
     """
     try:
-        # Try sport-specific template first
+        # Try sport-specific + sequence type match
         if sport:
             response = notion.databases.query(
                 database_id=templates_db,
                 filter={
                     "and": [
                         {"property": "Sport", "select": {"equals": sport}},
-                        {"property": "Sequence Step", "number": {"equals": sequence_step}}
+                        {"property": "Sequence Step", "number": {"equals": sequence_step}},
+                        {"property": "Sequence Type", "select": {"equals": sequence_type}},
                     ]
                 }
             )
             if response['results']:
                 return response['results'][0]
 
-        # Fall back to generic template (no sport or "All")
+        # Try sequence type + step (any sport)
+        response = notion.databases.query(
+            database_id=templates_db,
+            filter={
+                "and": [
+                    {"property": "Sequence Step", "number": {"equals": sequence_step}},
+                    {"property": "Sequence Type", "select": {"equals": sequence_type}},
+                ]
+            }
+        )
+        if response['results']:
+            return response['results'][0]
+
+        # Fall back to Cold template if Returning not found
+        if sequence_type == 'Returning':
+            print(f"  No Returning template for step {sequence_step}, falling back to Cold", file=sys.stderr)
+            return find_template(notion, templates_db, sport=sport,
+                                sequence_step=sequence_step, sequence_type='Cold')
+
+        # Last resort: any template with matching step
         response = notion.databases.query(
             database_id=templates_db,
             filter={
@@ -212,12 +239,6 @@ def find_template(notion, templates_db, sport=None, sequence_step=1):
                 "number": {"equals": sequence_step}
             }
         )
-
-        if response['results']:
-            return response['results'][0]
-
-        # Last resort: get any template
-        response = notion.databases.query(database_id=templates_db)
         if response['results']:
             return response['results'][0]
 
@@ -463,12 +484,19 @@ def create_draft_for_game(notion, games_db, contacts_db, templates_db, email_que
             print(f"  Skipping: {reason}", file=sys.stderr)
             return "duplicate"
 
+    # Determine if returning customer
+    is_returning = game_data.get('is_returning', False)
+    sequence_type = 'Returning' if is_returning else 'Cold'
+    if is_returning:
+        print(f"  Returning customer detected — using Returning template", file=sys.stderr)
+
     # Find template
     template = None
     if template_page_id:
         template = notion.pages.retrieve(page_id=template_page_id)
     else:
-        template = find_template(notion, templates_db, sport=game_data['sport'])
+        template = find_template(notion, templates_db, sport=game_data['sport'],
+                                sequence_type=sequence_type)
 
     if not template:
         print("  Warning: No template found, using default", file=sys.stderr)

@@ -205,14 +205,19 @@ def update_game_outreach(notion, game_page_id):
         today = datetime.now().strftime('%Y-%m-%d')
         followup = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
 
-        notion.pages.update(
-            page_id=game_page_id,
-            properties={
-                "Last Contacted": {"date": {"start": today}},
-                "Follow-up Date": {"date": {"start": followup}},
-                "Outreach Status": {"select": {"name": "Email Sent"}}
-            }
-        )
+        props_to_update = {
+            "Last Contacted": {"date": {"start": today}},
+            "Follow-up Date": {"date": {"start": followup}},
+            "Outreach Status": {"select": {"name": "Email Sent"}}
+        }
+
+        # Set First Contacted only if not already set
+        game = notion.pages.retrieve(page_id=game_page_id)
+        first_contacted = game['properties'].get('First Contacted', {}).get('date')
+        if not first_contacted:
+            props_to_update["First Contacted"] = {"date": {"start": today}}
+
+        notion.pages.update(page_id=game_page_id, properties=props_to_update)
         print(f"  Updated Game: Last Contacted={today}, Follow-up={followup}", file=sys.stderr)
         return True
     except APIResponseError as e:
@@ -221,15 +226,21 @@ def update_game_outreach(notion, game_page_id):
 
 
 def update_contact_last_emailed(notion, contact_page_id):
-    """Update Contact's Last Emailed date."""
+    """Update Contact's Last Emailed and First Emailed dates."""
     try:
         today = datetime.now().strftime('%Y-%m-%d')
-        notion.pages.update(
-            page_id=contact_page_id,
-            properties={
-                "Last Emailed": {"date": {"start": today}}
-            }
-        )
+
+        props_to_update = {
+            "Last Emailed": {"date": {"start": today}}
+        }
+
+        # Set First Emailed only if not already set
+        contact = notion.pages.retrieve(page_id=contact_page_id)
+        first_emailed = contact['properties'].get('First Emailed', {}).get('date')
+        if not first_emailed:
+            props_to_update["First Emailed"] = {"date": {"start": today}}
+
+        notion.pages.update(page_id=contact_page_id, properties=props_to_update)
         print(f"  Updated Contact: Last Emailed={today}", file=sys.stderr)
         return True
     except APIResponseError as e:
