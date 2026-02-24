@@ -1,0 +1,30 @@
+# NCAA Athletics Contact Automation - Python Dependencies
+
+# Web scraping and browser automation
+playwright==1.47.0
+beautifulsoup4==4.12.3
+lxml==5.1.0
+
+# Google Sheets integration
+google-api-python-client==2.108.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.0
+
+# Notion integration
+notion-client==2.2.1
+
+# Email sending
+sendgrid==6.11.0
+
+# Data processing
+pandas==2.1.4
+python-dateutil==2.8.2
+
+# Environment and configuration
+python-dotenv==1.0.0
+
+# HTTP requests (backup)
+requests==2.31.0
+
+# Utilities
+tqdm==4.66.1  # Progress bars

@@ -1,0 +1,42 @@
+name: Livite CRM Cron Runner
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    # Manual trigger from GitHub Actions UI (or API)
+
+jobs:
+  run-crm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write secrets to files
+        env:
+          GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          echo "$GMAIL_TOKEN_JSON" > token.json
+          echo "$GOOGLE_CREDENTIALS_JSON" > credentials.json
+          echo "$ENV_FILE" > .env
+
+      - name: Create temp directory
+        run: mkdir -p .tmp
+
+      - name: Run CRM cron
+        run: python tools/notion_cron_runner.py

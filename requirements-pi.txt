@@ -1,0 +1,16 @@
+# Minimal dependencies for Pi deployment (email automation only)
+# No playwright, beautifulsoup, pandas — scraping stays on Mac
+
+# Google API (Gmail)
+google-api-python-client>=2.108.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+
+# Notion integration (pinned — 2.7.0 breaks databases.query API)
+notion-client==2.2.1
+
+# Environment
+python-dotenv>=1.0.0
+
+# HTTP
+requests>=2.31.0
