@@ -442,6 +442,16 @@ def create_draft_for_game(notion, games_db, contacts_db, templates_db, email_que
     """
     print(f"\nCreating draft for game: {game_page_id}", file=sys.stderr)
 
+    # Skip if draft already created for this game
+    try:
+        game_check = notion.pages.retrieve(page_id=game_page_id)
+        draft_created = game_check['properties'].get('Draft Created', {}).get('date')
+        if draft_created:
+            print(f"  Skipping: Draft already created on {draft_created['start']}", file=sys.stderr)
+            return "duplicate"
+    except:
+        pass
+
     # Get game details
     game_data = get_game_details(notion, game_page_id)
     if not game_data:
@@ -567,6 +577,17 @@ Livite Sports Catering"""
 
     if draft_id:
         print(f"  Created draft: {draft_id}", file=sys.stderr)
+        # Stamp Draft Created date so we don't create another
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            notion.pages.update(
+                page_id=game_data['game_id'],
+                properties={
+                    "Draft Created": {"date": {"start": today}}
+                }
+            )
+        except:
+            pass
         return draft_id
     else:
         print("  Error: Failed to create draft", file=sys.stderr)
