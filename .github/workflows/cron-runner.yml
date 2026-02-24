@@ -2,8 +2,8 @@ name: Livite CRM Cron Runner
 
 on:
   schedule:
-    # Run every 15 minutes
-    - cron: '*/15 * * * *'
+    # Run every 5 minutes (public repo = unlimited Actions minutes)
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     # Manual trigger from GitHub Actions UI (or API)
 
