@@ -168,14 +168,15 @@ def get_games_for_contact(notion, games_db, contact_id):
 
 
 def update_contact_and_games(notion, games_db, contact, sent_info, dry_run=False):
-    """Update a contact's Last Emailed and their games' Outreach Status."""
+    """Update a contact's dates and Relationship status. Does NOT touch game Outreach Status."""
     updated = {'contact': False, 'games': 0}
 
     first_date = sent_info.get('first_date', sent_info['date'])
     total = sent_info.get('total_emails', 1)
 
     if dry_run:
-        log(f"  [DRY RUN] Would update Contact '{contact['name']}' Last Emailed → {sent_info['date']}, First Emailed → {first_date} ({total} emails total)")
+        log(f"  [DRY RUN] Would update Contact '{contact['name']}' → Previously Contacted, "
+            f"First Emailed → {first_date}, Last Emailed → {sent_info['date']} ({total} emails total)")
     else:
         try:
             notion.pages.update(
@@ -183,37 +184,12 @@ def update_contact_and_games(notion, games_db, contact, sent_info, dry_run=False
                 properties={
                     "Last Emailed": {"date": {"start": sent_info['date']}},
                     "First Emailed": {"date": {"start": first_date}},
+                    "Relationship": {"select": {"name": "Previously Contacted"}},
                 }
             )
             updated['contact'] = True
         except APIResponseError as e:
             log(f"  Error updating contact: {e}")
-
-    # Update associated games
-    games = get_games_for_contact(notion, games_db, contact['id'])
-    for game in games:
-        game_props = game['properties']
-        current_status = game_props.get('Outreach Status', {}).get('select', {}).get('name', '')
-
-        # Only update if currently "Not Contacted"
-        if current_status == 'Not Contacted':
-            if dry_run:
-                title = ''.join(t.get('plain_text', '') for t in game_props.get('Game ID', {}).get('title', []))
-                log(f"  [DRY RUN] Would update Game '{title}' → Email Sent")
-            else:
-                try:
-                    notion.pages.update(
-                        page_id=game['id'],
-                        properties={
-                            "Outreach Status": {"select": {"name": "Email Sent"}},
-                            "Last Contacted": {"date": {"start": sent_info['date']}},
-                            "First Contacted": {"date": {"start": first_date}},
-                        }
-                    )
-                    updated['games'] += 1
-                    time.sleep(0.35)  # Rate limiting
-                except APIResponseError as e:
-                    log(f"  Error updating game: {e}")
 
     return updated
 

@@ -178,10 +178,13 @@ def get_game_details(notion, game_page_id):
             )
             game_data['contact_email'] = contact_props.get('Email', {}).get('email', '')
 
-            # Check if this is a returning contact (has been emailed before)
-            last_emailed = contact_props.get('Last Emailed', {}).get('date')
-            first_emailed = contact_props.get('First Emailed', {}).get('date')
-            game_data['is_returning'] = bool(last_emailed or first_emailed)
+            # Check if this is a returning contact via Relationship field
+            relationship = contact_props.get('Relationship', {}).get('select')
+            relationship_name = relationship.get('name', '') if relationship else ''
+            game_data['is_returning'] = relationship_name in (
+                'Previously Contacted', 'Previously Responded', 'Previous Customer'
+            )
+            game_data['relationship'] = relationship_name
 
         return game_data
 
