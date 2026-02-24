@@ -1,9 +1,32 @@
 services:
   - type: web
-    name: livite-crm-sync
+    name: livite-crm
     runtime: python
+    rootDir: .
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn sync-trigger.app:app --timeout 300
     envVars:
-      - key: GITHUB_PAT
-        sync: false  # Set manually in Render dashboard
+      - key: NOTION_API_KEY
+        sync: false
+      - key: NOTION_GAMES_DB
+        sync: false
+      - key: NOTION_CONTACTS_DB
+        sync: false
+      - key: NOTION_TEMPLATES_DB
+        sync: false
+      - key: NOTION_EMAIL_QUEUE_DB
+        sync: false
+      - key: NOTION_SCHOOLS_DB
+        sync: false
+      - key: NOTION_ORDERS_DB
+        sync: false
+      - key: NOTION_DASHBOARD_CONTACTS_DB
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: FROM_NAME
+        sync: false
+      - key: GMAIL_TOKEN_JSON
+        sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false

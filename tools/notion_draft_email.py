@@ -289,15 +289,18 @@ def check_duplicate_outreach(notion, contacts_db, email_queue_db, contact_id, sc
     """
     Check if this outreach would be a duplicate.
 
+    Only uses the Email Queue as source of truth (not Contact Last Emailed,
+    which includes backfilled manual emails that shouldn't block new CRM outreach).
+
     Rules:
-    - Same Contact Rule: Skip if emailed within 7 days
+    - CRM Contact Rule: Skip if CRM emailed this contact within 7 days (Email Queue)
     - Pending Email Rule: Skip if email already in queue for this contact
-    - Same School Rule: Skip if any contact at school emailed within 3 days for same sport
+    - CRM School Rule: Skip if CRM emailed any contact at same school/sport within 3 days
 
     Returns: (is_duplicate: bool, reason: str)
     """
     try:
-        # Check 0: Email Queue ground truth (catches stale/missing Last Emailed)
+        # Check 1: Has the CRM sent this contact an email within 7 days?
         if contact_id:
             contact = notion.pages.retrieve(page_id=contact_id)
             contact_props = contact['properties']
@@ -316,67 +319,42 @@ def check_duplicate_outreach(notion, contacts_db, email_queue_db, contact_id, sc
                     }
                 )
                 if eq_response['results']:
-                    return True, f"Email Queue confirms {contact_email} emailed within 7 days"
+                    return True, f"CRM emailed {contact_email} within 7 days"
 
-        # Check 1: Contact emailed recently? (Last Emailed property)
-        if contact_id:
-            if not contact_props:
-                contact = notion.pages.retrieve(page_id=contact_id)
-                contact_props = contact['properties']
-
-            if 'Last Emailed' in contact_props and contact_props['Last Emailed'].get('date'):
-                last_emailed_str = contact_props['Last Emailed']['date'].get('start', '')
-                if last_emailed_str:
-                    last_emailed = datetime.fromisoformat(last_emailed_str.replace('Z', '+00:00'))
-                    if last_emailed.tzinfo:
-                        last_emailed = last_emailed.replace(tzinfo=None)
-                    days_since = (datetime.now() - last_emailed).days
-                    if days_since < 7:
-                        return True, f"Contact emailed {days_since} days ago (within 7 day window)"
-
-        # Check 2: Email already pending in queue for this contact?
+        # Check 2: Email already pending/active in queue for this contact?
+        # Only block on Draft or Approved (active pipeline items)
         if contact_id:
             response = notion.databases.query(
                 database_id=email_queue_db,
                 filter={
                     "and": [
                         {"property": "Contact", "relation": {"contains": contact_id}},
-                        {"property": "Status", "select": {"does_not_equal": "Sent"}}
+                        {"or": [
+                            {"property": "Status", "select": {"equals": "Draft"}},
+                            {"property": "Status", "select": {"equals": "Approved"}},
+                        ]}
                     ]
                 }
             )
             if response['results']:
-                return True, "Email already in queue for this contact"
+                return True, "Email already in queue for this contact (Draft or Approved)"
 
-        # Check 3: Another contact at same school emailed recently for same sport?
-        # This requires finding all contacts at the school
+        # Check 3: Has the CRM emailed anyone at same school/sport within 3 days?
         if school_id and sport:
-            # Find all contacts at this school
-            response = notion.databases.query(
-                database_id=contacts_db,
+            three_days_ago = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
+            eq_response = notion.databases.query(
+                database_id=email_queue_db,
                 filter={
                     "and": [
-                        {"property": "School", "relation": {"contains": school_id}},
-                        {"property": "Sport", "select": {"equals": sport}}
+                        {"property": "Sport", "rich_text": {"contains": sport}},
+                        {"property": "School", "rich_text": {"contains": school_id[:8]}},
+                        {"property": "Status", "select": {"equals": "Sent"}},
+                        {"property": "Sent At", "date": {"on_or_after": three_days_ago}},
                     ]
                 }
             )
-
-            for contact in response['results']:
-                if contact['id'] == contact_id:
-                    continue  # Skip the current contact (already checked above)
-
-                contact_props = contact['properties']
-                if 'Last Emailed' in contact_props and contact_props['Last Emailed'].get('date'):
-                    last_emailed_str = contact_props['Last Emailed']['date'].get('start', '')
-                    if last_emailed_str:
-                        last_emailed = datetime.fromisoformat(last_emailed_str.replace('Z', '+00:00'))
-                        if last_emailed.tzinfo:
-                            last_emailed = last_emailed.replace(tzinfo=None)
-                        days_since = (datetime.now() - last_emailed).days
-                        if days_since < 3:
-                            contact_name = extract_title(contact_props.get('Name', {}).get('title', []))
-                            return True, f"Another {sport} contact ({contact_name}) emailed {days_since} days ago"
+            if eq_response['results']:
+                return True, f"CRM emailed another {sport} contact at this school within 3 days"
 
         return False, "OK to email"
 
@@ -687,6 +665,7 @@ def process_flagged_games(notion, games_db, contacts_db, templates_db, email_que
             if draft_id == "duplicate":
                 stats['duplicates'] += 1
                 clear_create_draft_flag(notion, game_id)
+                set_game_draft_error(notion, game_id, "Skipped — duplicate outreach detected (contact recently emailed)")
             elif draft_id:
                 stats['created'] += 1
                 clear_create_draft_flag(notion, game_id)
