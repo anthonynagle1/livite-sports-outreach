@@ -22,6 +22,8 @@ services:
         sync: false
       - key: NOTION_CATERING_ORDERS_DS
         sync: false
+      - key: NOTION_CATERING_ORDERS_DB
+        sync: false
       - key: NOTION_DASHBOARD_CONTACTS_DB
         sync: false
       - key: FROM_EMAIL
