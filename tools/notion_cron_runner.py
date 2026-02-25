@@ -542,8 +542,9 @@ def main():
     steps_completed += 1
 
     # Daily digest (once per day, not counted as a step)
-    if oauth_ok:
-        run_daily_digest()
+    # PAUSED per user request 2026-02-25 — uncomment to re-enable
+    # if oauth_ok:
+    #     run_daily_digest()
 
     # Summary
     log("-" * 50)
