@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """
 Tool: notion_convert_to_order.py
-Purpose: Convert responded emails into Orders when "Convert to Order" checkbox is checked
+Purpose: Convert responded emails into Catering Operations orders when
+         "Convert to Order" checkbox is checked.
 
 Workflow:
 1. Query Email Queue for entries with "Convert to Order" checked
-2. For each: create an Order record in the Orders database
-3. Update Email Queue Status → "Booked", Game Outreach Status → "Booked"
-4. Clear the checkbox
+2. Clear the checkbox immediately (anti-duplicate)
+3. Check Catering Operations DB for existing order (duplicate protection)
+4. Create order in Catering Operations & Sales (data_source_id API)
+5. Update Email Queue Status → "Booked", Game Outreach Status → "Booked"
+
+Undo:
+- "Undo Order" on Email Queue → archives Catering Ops order, reverts statuses
+- "Undo Outreach" on Email Queue → full reversal including contact cleanup
+- "Undo Order" on Catering Ops order → archives order, reverts statuses
 
 Usage:
     python tools/notion_convert_to_order.py              # Process all flagged
@@ -414,38 +421,108 @@ def remove_pending_catering_order(game_date, school):
     return False
 
 
-def archive_dashboard_catering_order(notion, game_id):
-    """Archive a Dashboard Catering Order using the mapping file."""
-    mapping_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                '.tmp', 'catering_order_mapping.json')
-    if not os.path.exists(mapping_file):
-        return False
+def find_catering_order_by_query(notion, game_data):
+    """Find a Catering Operations order by searching for the expected order name.
+
+    Uses Notion search API since the Catering Operations DB is multi-source
+    and databases.query doesn't work on it. Validates results by checking
+    parent database and Order Platform property.
+    """
+    catering_db = os.getenv('NOTION_CATERING_ORDERS_DB')
+    if not catering_db or not game_data:
+        return None
+
+    school = game_data.get('away_school') or game_data.get('home_school') or ''
+    game_date = game_data.get('game_date', '')
+    if not school or not game_date:
+        return None
 
     try:
-        with open(mapping_file, 'r') as f:
-            mapping = json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return False
+        dt = datetime.strptime(game_date, '%Y-%m-%d')
+        expected_name = "{} {}".format(school, dt.strftime('%m.%d'))
+    except ValueError:
+        expected_name = school
 
-    page_id = mapping.get(game_id)
+    # Normalize the catering DB ID (remove dashes for comparison)
+    catering_db_norm = catering_db.replace('-', '')
+
+    try:
+        response = notion.search(
+            query=expected_name,
+            filter={"property": "object", "value": "page"},
+        )
+        for page in response['results']:
+            if page.get('archived', False):
+                continue
+            # Check parent is our Catering Operations DB
+            parent_db = page.get('parent', {}).get('database_id', '').replace('-', '')
+            if parent_db != catering_db_norm:
+                continue
+            # Check title matches exactly
+            title = ''
+            for pval in page['properties'].values():
+                if pval.get('type') == 'title':
+                    title = ''.join(t.get('plain_text', '') for t in pval.get('title', []))
+                    break
+            if title == expected_name:
+                # Verify it's a Sports Auto Outreach order
+                platform = page['properties'].get('Order Platform', {}).get('select', {})
+                if platform and platform.get('name') == 'Sports Auto Outreach':
+                    return page['id']
+    except APIResponseError as e:
+        log(f"    Error searching for Catering Operations order: {e}")
+
+    return None
+
+
+def archive_dashboard_catering_order(notion, game_id, game_data=None):
+    """Archive a Catering Operations order. Tries mapping file first, then DB query."""
+    # Try 1: mapping file (fast, works locally)
+    mapping_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                '.tmp', 'catering_order_mapping.json')
+    page_id = None
+
+    if os.path.exists(mapping_file):
+        try:
+            with open(mapping_file, 'r') as f:
+                mapping = json.load(f)
+            page_id = mapping.get(game_id)
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    # Try 2: query DB by order name (reliable fallback for Render)
+    if not page_id and game_data:
+        page_id = find_catering_order_by_query(notion, game_data)
+
     if not page_id:
+        log(f"    No Catering Operations order found to archive")
         return False
 
     try:
         notion.pages.update(page_id=page_id, archived=True)
-        log(f"    Archived Dashboard Catering Order: {page_id}")
-        # Remove from mapping
-        del mapping[game_id]
-        with open(mapping_file, 'w') as f:
-            json.dump(mapping, f, indent=2)
+        log(f"    Archived Catering Operations order: {page_id}")
+        # Clean up mapping file
+        if os.path.exists(mapping_file):
+            try:
+                with open(mapping_file, 'r') as f:
+                    mapping = json.load(f)
+                mapping.pop(game_id, None)
+                with open(mapping_file, 'w') as f:
+                    json.dump(mapping, f, indent=2)
+            except (json.JSONDecodeError, IOError):
+                pass
         return True
     except APIResponseError as e:
-        log(f"    Error archiving Dashboard Catering Order {page_id}: {e}")
+        log(f"    Error archiving Catering Operations order {page_id}: {e}")
         return False
 
 
 def process_undo_orders(notion, email_queue_db, orders_db, games_db):
-    """Process emails with 'Undo Order' checked. Reverts Booked → Responded."""
+    """Process emails with 'Undo Order' checked. Reverts Booked → Responded.
+
+    Archives the Catering Operations order and reverts email/game statuses.
+    Note: orders_db param kept for backward compat but is no longer used.
+    """
     try:
         response = notion.databases.query(
             database_id=email_queue_db,
@@ -481,26 +558,18 @@ def process_undo_orders(notion, email_queue_db, orders_db, games_db):
 
         game_id = game_rel[0]['id']
 
-        # 1. Archive Sports Automation Order(s) for this game
-        order_ids = find_orders_for_game(notion, orders_db, game_id)
-        for oid in order_ids:
-            try:
-                notion.pages.update(page_id=oid, archived=True)
-                log(f"    Archived order: {oid}")
-            except APIResponseError as e:
-                log(f"    Error archiving order {oid}: {e}")
+        # 1. Get game data for DB query fallback
+        game_data = get_game_details(notion, game_id)
 
         # 2. Remove pending catering order from JSON
-        game_data = get_game_details(notion, game_id)
         if game_data:
             school = game_data.get('away_school') or game_data.get('home_school') or ''
             game_date = game_data.get('game_date', '')
             if remove_pending_catering_order(game_date, school):
-                log(f"    Removed pending Dashboard Catering Order")
+                log(f"    Removed pending Catering Order")
 
-        # 3. Archive Dashboard Catering Order if already created
-        if archive_dashboard_catering_order(notion, game_id):
-            pass  # Already logged inside the function
+        # 3. Archive Catering Operations order (mapping file → DB query fallback)
+        archive_dashboard_catering_order(notion, game_id, game_data=game_data)
 
         # 4. Revert Email Queue Status → Responded + clear checkbox
         try:
@@ -561,21 +630,13 @@ def process_undo_outreach(notion, email_queue_db, orders_db, games_db, contacts_
         # If Booked, undo the order first
         if status == 'Booked' and game_id:
             log(f"    Status is Booked — undoing order first")
-            order_ids = find_orders_for_game(notion, orders_db, game_id)
-            for oid in order_ids:
-                try:
-                    notion.pages.update(page_id=oid, archived=True)
-                    log(f"    Archived order: {oid}")
-                except APIResponseError as e:
-                    log(f"    Error archiving order {oid}: {e}")
-
             game_data = get_game_details(notion, game_id)
             if game_data:
                 school = game_data.get('away_school') or game_data.get('home_school') or ''
                 game_date = game_data.get('game_date', '')
                 remove_pending_catering_order(game_date, school)
 
-            archive_dashboard_catering_order(notion, game_id)
+            archive_dashboard_catering_order(notion, game_id, game_data=game_data)
 
         # Clear Contact's Last Emailed so dedup doesn't block re-outreach
         contact_rel = props.get('Contact', {}).get('relation', [])
@@ -613,14 +674,14 @@ def process_undo_outreach(notion, email_queue_db, orders_db, games_db, contacts_
 
 
 def process_sports_order_undo(notion, orders_db, games_db, email_queue_db):
-    """Process 'Undo Order' checked directly on Sports Orders (Sports Automation Orders calendar).
+    """DEPRECATED — Sports Orders DB is no longer used for new orders.
 
-    Queries the Sports Orders DB for entries with Undo Order checked, then:
-    1. Archives the Sports Order
-    2. Archives the corresponding Dashboard Catering Order (via mapping)
-    3. Reverts Game Outreach Status → Responded
-    4. Reverts Email Queue status → Responded
+    Kept for backward compat: if any old Sports Orders still have Undo Order checked,
+    this will archive them. No new orders are created in this DB.
     """
+    if not orders_db:
+        return {'processed': 0, 'undone': 0, 'failed': 0}
+
     try:
         response = notion.databases.query(
             database_id=orders_db,
@@ -634,70 +695,23 @@ def process_sports_order_undo(notion, orders_db, games_db, email_queue_db):
     if not flagged:
         return {'processed': 0, 'undone': 0, 'failed': 0}
 
-    log(f"Found {len(flagged)} Sports Order(s) flagged for undo")
+    log(f"Found {len(flagged)} legacy Sports Order(s) flagged for undo")
     stats = {'processed': 0, 'undone': 0, 'failed': 0}
 
     for order_page in flagged:
         stats['processed'] += 1
         props = order_page['properties']
         order_id = extract_title(props.get('Order ID', {}).get('title', []))
-        log(f"  Sports Order undo: {order_id}")
+        log(f"  Legacy Sports Order undo: {order_id}")
 
-        game_rel = props.get('Game', {}).get('relation', [])
-        game_id = game_rel[0]['id'] if game_rel else None
-
-        # 1. Archive the Sports Order
+        # Archive the legacy Sports Order
         try:
             notion.pages.update(page_id=order_page['id'], archived=True)
-            log(f"    Archived Sports Order")
+            log(f"    Archived legacy Sports Order")
         except APIResponseError as e:
             log(f"    Error archiving Sports Order: {e}")
             stats['failed'] += 1
             continue
-
-        # 2. Archive Dashboard Catering Order (via mapping)
-        if game_id:
-            archive_dashboard_catering_order(notion, game_id)
-
-            # Also remove pending catering order if it exists
-            game_data = get_game_details(notion, game_id)
-            if game_data:
-                school = game_data.get('away_school') or game_data.get('home_school') or ''
-                game_date = game_data.get('game_date', '')
-                if remove_pending_catering_order(game_date, school):
-                    log(f"    Removed pending Dashboard Catering Order")
-
-        # 3. Revert Game Outreach Status → Responded
-        if game_id:
-            try:
-                notion.pages.update(
-                    page_id=game_id,
-                    properties={"Outreach Status": {"select": {"name": "Responded"}}}
-                )
-                log(f"    Game status → Responded")
-            except APIResponseError as e:
-                log(f"    Error reverting game status: {e}")
-
-        # 4. Revert Email Queue entry
-        if game_id:
-            try:
-                eq_response = notion.databases.query(
-                    database_id=email_queue_db,
-                    filter={"property": "Game", "relation": {"contains": game_id}}
-                )
-                for eq in eq_response['results']:
-                    eq_status = eq['properties'].get('Status', {}).get('select', {})
-                    if eq_status and eq_status.get('name') == 'Booked':
-                        notion.pages.update(
-                            page_id=eq['id'],
-                            properties={
-                                "Status": {"select": {"name": "Responded"}},
-                                "Undo Order": {"checkbox": False}
-                            }
-                        )
-                        log(f"    Email status → Responded")
-            except APIResponseError as e:
-                log(f"    Error reverting email status: {e}")
 
         stats['undone'] += 1
 
@@ -705,10 +719,10 @@ def process_sports_order_undo(notion, orders_db, games_db, email_queue_db):
 
 
 def process_dashboard_undo_orders(notion, orders_db, games_db, email_queue_db):
-    """Process 'Undo Order' checked on Dashboard Catering Orders (Catering Ops calendar).
+    """Process 'Undo Order' checked on Catering Operations orders.
 
-    Since the Catering Orders DB is multi-source (can't use databases.query),
-    we iterate the mapping file and check each dashboard order individually.
+    Iterates the mapping file to find catering orders created by Sports Auto Outreach,
+    checks if their Undo Order checkbox is set, and reverses the full flow.
     """
     mapping_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 '.tmp', 'catering_order_mapping.json')
@@ -728,7 +742,7 @@ def process_dashboard_undo_orders(notion, orders_db, games_db, email_queue_db):
     to_remove = []
 
     for game_id, catering_page_id in mapping.items():
-        # Check if dashboard order has Undo Order checked
+        # Check if catering order has Undo Order checked
         try:
             page = notion.pages.retrieve(page_id=catering_page_id)
         except APIResponseError:
@@ -744,29 +758,20 @@ def process_dashboard_undo_orders(notion, orders_db, games_db, email_queue_db):
 
         order_name = extract_title(
             page.get('properties', {}).get('Order Name', {}).get('title', []))
-        log(f"  Dashboard undo: {order_name} (game: {game_id[:8]}...)")
+        log(f"  Catering undo: {order_name} (game: {game_id[:8]}...)")
         stats['processed'] += 1
 
-        # 1. Archive the dashboard catering order
+        # 1. Archive the Catering Operations order
         try:
             notion.pages.update(page_id=catering_page_id, archived=True)
-            log(f"    Archived Dashboard Catering Order")
+            log(f"    Archived Catering Operations order")
             to_remove.append(game_id)
         except APIResponseError as e:
-            log(f"    Error archiving dashboard order: {e}")
+            log(f"    Error archiving catering order: {e}")
             stats['failed'] += 1
             continue
 
-        # 2. Archive Sports Automation Order(s) for this game
-        order_ids = find_orders_for_game(notion, orders_db, game_id)
-        for oid in order_ids:
-            try:
-                notion.pages.update(page_id=oid, archived=True)
-                log(f"    Archived Sports Order: {oid[:8]}...")
-            except APIResponseError as e:
-                log(f"    Error archiving order {oid[:8]}: {e}")
-
-        # 3. Revert Game Outreach Status → Responded
+        # 2. Revert Game Outreach Status → Responded
         try:
             notion.pages.update(
                 page_id=game_id,
@@ -776,7 +781,7 @@ def process_dashboard_undo_orders(notion, orders_db, games_db, email_queue_db):
         except APIResponseError as e:
             log(f"    Error reverting game status: {e}")
 
-        # 4. Revert Email Queue entry (find by Game relation)
+        # 3. Revert Email Queue entry (find by Game relation)
         try:
             eq_response = notion.databases.query(
                 database_id=email_queue_db,
@@ -809,11 +814,21 @@ def process_dashboard_undo_orders(notion, orders_db, games_db, email_queue_db):
 
 
 def process_flagged_conversions(notion, email_queue_db, orders_db, games_db, dry_run=False):
-    """Main processing loop. Find flagged emails, create orders, update statuses."""
+    """Main processing loop. Find flagged emails, create Catering Operations orders.
+
+    Flow:
+    1. Clear Convert to Order flag immediately (anti-duplicate)
+    2. Check Catering Operations DB for existing order (duplicate protection)
+    3. Create order in Catering Operations & Sales (the ONLY order target)
+    4. Mark Email → Booked, Game → Booked
+
+    Note: orders_db param kept for backward compat but is no longer used.
+    All orders go directly to Catering Operations & Sales.
+    """
     flagged = get_flagged_emails(notion, email_queue_db)
     log(f"Found {len(flagged)} email(s) flagged for order conversion")
 
-    stats = {'processed': 0, 'created': 0, 'failed': 0, 'dashboard_created': 0, 'dashboard_pending': 0}
+    stats = {'processed': 0, 'created': 0, 'failed': 0, 'skipped_duplicate': 0}
 
     for email_page in flagged:
         stats['processed'] += 1
@@ -821,51 +836,55 @@ def process_flagged_conversions(notion, email_queue_db, orders_db, games_db, dry
         subject = extract_text(props.get('Subject', {}).get('rich_text', []))
         log(f"  Processing: {subject[:60]}")
 
+        # IMMEDIATELY clear the Convert to Order flag to prevent duplicate processing
+        # on the next cron cycle. This is the single most important anti-duplicate step.
+        clear_convert_flag(notion, email_page['id'])
+
         # Get linked game
         game_rel = props.get('Game', {}).get('relation', [])
         if not game_rel:
             log(f"    No game linked — skipping")
-            clear_convert_flag(notion, email_page['id'])
             stats['failed'] += 1
             continue
 
-        game_data = get_game_details(notion, game_rel[0]['id'])
+        game_id = game_rel[0]['id']
+        game_data = get_game_details(notion, game_id)
         if not game_data:
             log(f"    Could not fetch game details — skipping")
-            clear_convert_flag(notion, email_page['id'])
             stats['failed'] += 1
             continue
 
         school = game_data.get('away_school') or game_data.get('home_school') or 'Unknown'
         log(f"    School: {school}, Date: {game_data.get('game_date', 'TBA')}")
 
-        if dry_run:
-            log(f"    [DRY RUN] Would create order and update statuses")
+        # DUPLICATE CHECK: Does a Catering Operations order already exist?
+        existing_catering = find_catering_order_by_query(notion, game_data)
+        if existing_catering:
+            log(f"    DUPLICATE: Catering order already exists ({existing_catering[:8]}...) — skipping")
+            # Still mark as booked in case a previous run failed mid-way
+            update_email_booked(notion, email_page['id'])
+            update_game_booked(notion, game_id)
+            stats['skipped_duplicate'] += 1
             continue
 
-        # Create the Sports Automation order
-        order_page_id, order_id = create_order(notion, orders_db, props, game_data)
-        if not order_page_id:
-            log(f"    Failed to create order")
-            clear_convert_flag(notion, email_page['id'])
+        if dry_run:
+            log(f"    [DRY RUN] Would create Catering Operations order and update statuses")
+            continue
+
+        # Create order in Catering Operations & Sales (the ONLY order target)
+        catering_result = create_dashboard_catering_order(notion, props, game_data)
+        if not catering_result or not catering_result.get('direct'):
+            log(f"    Failed to create Catering Operations order")
             stats['failed'] += 1
             continue
 
-        log(f"    Created order: {order_id}")
+        log(f"    Created Catering Operations order: {catering_result.get('order_name', '?')}")
 
-        # Create Dashboard Catering Order (direct API or pending fallback)
-        catering_result = create_dashboard_catering_order(notion, props, game_data)
-        if catering_result:
-            if catering_result.get('direct'):
-                stats['dashboard_created'] += 1
-            elif catering_result.get('pending'):
-                stats['dashboard_pending'] += 1
-
-        # Update email status to Booked + clear flag
+        # Update email status to Booked
         update_email_booked(notion, email_page['id'])
 
         # Update game outreach status to Booked
-        update_game_booked(notion, game_rel[0]['id'])
+        update_game_booked(notion, game_id)
 
         stats['created'] += 1
 
@@ -873,18 +892,22 @@ def process_flagged_conversions(notion, email_queue_db, orders_db, games_db, dry
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert emails to orders")
+    parser = argparse.ArgumentParser(description="Convert emails to Catering Operations orders")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be created without making changes")
     args = parser.parse_args()
 
     notion = Client(auth=os.getenv('NOTION_API_KEY'))
     email_queue_db = os.getenv('NOTION_EMAIL_QUEUE_DB')
-    orders_db = os.getenv('NOTION_ORDERS_DB')
+    orders_db = os.getenv('NOTION_ORDERS_DB')  # Legacy, optional
     games_db = os.getenv('NOTION_GAMES_DB')
 
-    if not all([email_queue_db, orders_db, games_db]):
-        log("Error: Missing required database IDs in .env")
+    if not all([email_queue_db, games_db]):
+        log("Error: Missing required database IDs (NOTION_EMAIL_QUEUE_DB, NOTION_GAMES_DB)")
+        sys.exit(1)
+
+    if not os.getenv('NOTION_CATERING_ORDERS_DS'):
+        log("Error: NOTION_CATERING_ORDERS_DS not set — required for order creation")
         sys.exit(1)
 
     stats = process_flagged_conversions(notion, email_queue_db, orders_db, games_db,
@@ -896,9 +919,9 @@ def main():
     log(f"{mode}ORDER CONVERSION COMPLETE")
     log(f"Processed: {stats['processed']}")
     log(f"Created: {stats['created']}")
+    if stats.get('skipped_duplicate', 0) > 0:
+        log(f"Duplicates skipped: {stats['skipped_duplicate']}")
     log(f"Failed: {stats['failed']}")
-    if stats.get('dashboard_pending', 0) > 0:
-        log(f"Dashboard orders pending: {stats['dashboard_pending']}")
     log(f"{'='*50}")
 
     print(json.dumps({"success": True, **stats}, indent=2))

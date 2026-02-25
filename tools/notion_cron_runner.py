@@ -248,11 +248,9 @@ def run_convert_to_order_processor():
         stats = process_flagged_conversions(notion, email_queue_db, orders_db, games_db)
 
         if stats.get('created', 0) > 0:
-            log(f"Created {stats['created']} order(s)")
-        if stats.get('dashboard_created', 0) > 0:
-            log(f"Dashboard catering orders created: {stats['dashboard_created']}")
-        if stats.get('dashboard_pending', 0) > 0:
-            log(f"Dashboard catering orders pending: {stats['dashboard_pending']} (run /create-catering-orders)")
+            log(f"Created {stats['created']} Catering Operations order(s)")
+        if stats.get('skipped_duplicate', 0) > 0:
+            log(f"Duplicates skipped: {stats['skipped_duplicate']}")
 
         return stats
 
