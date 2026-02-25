@@ -336,6 +336,14 @@ def create_game(notion, games_db, schools_db, contacts_db, game_data, home_schoo
     if contact_id:
         properties["Contact"] = {"relation": [{"id": contact_id}]}
 
+    # Visiting Team (e.g. "Holy Cross Women's Basketball")
+    if opponent and sport:
+        if gender and gender != 'Unknown':
+            visiting_team = "{} {}'s {}".format(opponent, gender, sport)
+        else:
+            visiting_team = "{} {}".format(opponent, sport)
+        properties["Visiting Team"] = {"rich_text": [{"text": {"content": visiting_team}}]}
+
     # Outreach Status
     properties["Outreach Status"] = {"select": {"name": "Not Contacted"}}
 

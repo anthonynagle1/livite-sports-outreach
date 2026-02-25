@@ -105,6 +105,64 @@ def extract_title(title_array):
     return ''.join(item.get('plain_text', '') for item in title_array)
 
 
+def find_team_games(notion, games_db, visiting_team, exclude_game_id=None):
+    """Find all games for the same visiting team (Away Team + Sport + Gender).
+
+    Returns list of dicts with game_id, game_date, game_date_formatted, home_school, venue
+    sorted by date ascending.
+    """
+    if not visiting_team:
+        return []
+    try:
+        response = notion.databases.query(
+            database_id=games_db,
+            filter={
+                "and": [
+                    {"property": "Visiting Team", "rich_text": {"equals": visiting_team}},
+                    {"property": "Game Date", "date": {"is_not_empty": True}},
+                ]
+            },
+            sorts=[{"property": "Game Date", "direction": "ascending"}],
+        )
+        games = []
+        for page in response['results']:
+            gid = page['id']
+            if gid == exclude_game_id:
+                continue
+            props = page['properties']
+            date_obj = props.get('Game Date', {}).get('date', {})
+            date_str = date_obj.get('start', '') if date_obj else ''
+            # Format date
+            formatted = date_str
+            try:
+                dt = datetime.fromisoformat(date_str)
+                day = dt.day
+                suffix = 'th' if 11 <= day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+                formatted = '{} {}{}'.format(dt.strftime('%B'), day, suffix)
+            except (ValueError, TypeError):
+                pass
+            # Get home school name
+            home_school = ''
+            home_rel = props.get('Home Team', {}).get('relation', [])
+            if home_rel:
+                try:
+                    hp = notion.pages.retrieve(page_id=home_rel[0]['id'])
+                    home_school = extract_title(hp['properties'].get('School Name', {}).get('title', []))
+                except Exception:
+                    pass
+            venue = extract_text_from_rich_text(props.get('Venue', {}).get('rich_text', []))
+            games.append({
+                'game_id': gid,
+                'game_date': date_str,
+                'game_date_formatted': formatted,
+                'home_school': home_school,
+                'venue': venue,
+            })
+        return games
+    except APIResponseError:
+        return []
+
+
 def get_game_details(notion, game_page_id):
     """
     Fetch game details and related data from Notion.
@@ -116,10 +174,13 @@ def get_game_details(notion, game_page_id):
         props = game['properties']
 
         # Extract basic game info
+        sport_select = props.get('Sport', {}).get('select')
+        gender_select = props.get('Gender', {}).get('select')
         game_data = {
             'game_id': game_page_id,
             'game_title': extract_title(props.get('Game ID', {}).get('title', [])),
-            'sport': props.get('Sport', {}).get('select', {}).get('name', ''),
+            'sport': sport_select.get('name', '') if sport_select else '',
+            'gender': gender_select.get('name', '') if gender_select else '',
             'venue': extract_text_from_rich_text(props.get('Venue', {}).get('rich_text', [])),
         }
 
@@ -364,13 +425,14 @@ def check_duplicate_outreach(notion, contacts_db, email_queue_db, contact_id, sc
 
 
 def create_email_draft(notion, email_queue_db, game_id, contact_id, template_id, subject, body,
-                       game_date=None, school=None, sport=None, to_email=None):
+                       game_date=None, school=None, sport=None, to_email=None,
+                       display_title=None):
     """
     Create an Email Queue entry with Draft status.
     """
     try:
-        # Generate email ID
-        email_id = f"Draft-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        # Use descriptive title or fall back to timestamp
+        email_id = display_title or f"Draft-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
         properties = {
             "Email ID": {
@@ -512,6 +574,30 @@ Livite Sports Catering"""
             print("  Error: Template has no subject or body", file=sys.stderr)
             return None
 
+    # Find other games for the same visiting team
+    visiting_team = ''
+    gender = game_data.get('gender', '')
+    away_school = game_data.get('away_school', '')
+    sport_name = game_data.get('sport', '')
+    if away_school and sport_name:
+        if gender and gender != 'Unknown':
+            visiting_team = "{} {}'s {}".format(away_school, gender, sport_name)
+        else:
+            visiting_team = "{} {}".format(away_school, sport_name)
+
+    other_games = find_team_games(notion, games_db, visiting_team, exclude_game_id=game_page_id)
+    total_games = len(other_games) + 1  # Including current game
+
+    if other_games:
+        print(f"  Multi-game team: {visiting_team} has {total_games} games in Boston", file=sys.stderr)
+        for og in other_games:
+            print(f"    - vs {og['home_school']} on {og['game_date_formatted']}", file=sys.stderr)
+
+    # Build upcoming games list for template (e.g. "March 3rd at Tufts, April 21st at UMass Boston")
+    other_games_list = ', '.join(
+        '{} at {}'.format(og['game_date_formatted'], og['home_school']) for og in other_games
+    )
+
     # Build variables for template rendering
     full_name = game_data['contact_name']
     first_name = full_name.split()[0] if full_name else ''
@@ -528,6 +614,8 @@ Livite Sports Catering"""
         'sport': game_data['sport'],
         'venue': game_data['venue'],
         'our_company': 'Livite Sports Catering',
+        'games_in_boston': str(total_games),
+        'other_games_list': other_games_list,
     }
 
     # Render templates
@@ -543,6 +631,11 @@ Livite Sports Catering"""
 
     print(f"  Subject: {subject}", file=sys.stderr)
 
+    # Build display title for Email Queue (e.g. "Harvard Women's Basketball (3 games)")
+    display_title = visiting_team.strip() if visiting_team else game_data.get('contact_name', 'Draft')
+    if total_games > 1:
+        display_title = "{} ({} games)".format(display_title, total_games)
+
     # Create the draft
     draft_id = create_email_draft(
         notion, email_queue_db,
@@ -554,6 +647,7 @@ Livite Sports Catering"""
         school=game_data.get('away_school'),
         sport=game_data.get('sport'),
         to_email=game_data.get('contact_email'),
+        display_title=display_title,
     )
 
     if draft_id:

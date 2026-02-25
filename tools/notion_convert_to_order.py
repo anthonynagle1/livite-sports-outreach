@@ -268,6 +268,7 @@ def create_dashboard_catering_order(notion, email_props, game_data):
     """
     catering_ds = os.getenv('NOTION_CATERING_ORDERS_DS')
     if not catering_ds:
+        log("    WARNING: NOTION_CATERING_ORDERS_DS not set — skipping Dashboard Catering Order")
         return None
 
     # Build order name: "School MM.DD"
@@ -604,6 +605,202 @@ def process_undo_outreach(notion, email_queue_db, orders_db, games_db, contacts_
             log(f"    Error archiving email: {e}")
 
         stats['undone'] += 1
+
+    return stats
+
+
+def process_sports_order_undo(notion, orders_db, games_db, email_queue_db):
+    """Process 'Undo Order' checked directly on Sports Orders (Sports Automation Orders calendar).
+
+    Queries the Sports Orders DB for entries with Undo Order checked, then:
+    1. Archives the Sports Order
+    2. Archives the corresponding Dashboard Catering Order (via mapping)
+    3. Reverts Game Outreach Status → Responded
+    4. Reverts Email Queue status → Responded
+    """
+    try:
+        response = notion.databases.query(
+            database_id=orders_db,
+            filter={"property": "Undo Order", "checkbox": {"equals": True}}
+        )
+        flagged = response['results']
+    except APIResponseError as e:
+        log(f"Error querying Sports Orders for Undo Order: {e}")
+        return {'processed': 0, 'undone': 0, 'failed': 0}
+
+    if not flagged:
+        return {'processed': 0, 'undone': 0, 'failed': 0}
+
+    log(f"Found {len(flagged)} Sports Order(s) flagged for undo")
+    stats = {'processed': 0, 'undone': 0, 'failed': 0}
+
+    for order_page in flagged:
+        stats['processed'] += 1
+        props = order_page['properties']
+        order_id = extract_title(props.get('Order ID', {}).get('title', []))
+        log(f"  Sports Order undo: {order_id}")
+
+        game_rel = props.get('Game', {}).get('relation', [])
+        game_id = game_rel[0]['id'] if game_rel else None
+
+        # 1. Archive the Sports Order
+        try:
+            notion.pages.update(page_id=order_page['id'], archived=True)
+            log(f"    Archived Sports Order")
+        except APIResponseError as e:
+            log(f"    Error archiving Sports Order: {e}")
+            stats['failed'] += 1
+            continue
+
+        # 2. Archive Dashboard Catering Order (via mapping)
+        if game_id:
+            archive_dashboard_catering_order(notion, game_id)
+
+            # Also remove pending catering order if it exists
+            game_data = get_game_details(notion, game_id)
+            if game_data:
+                school = game_data.get('away_school') or game_data.get('home_school') or ''
+                game_date = game_data.get('game_date', '')
+                if remove_pending_catering_order(game_date, school):
+                    log(f"    Removed pending Dashboard Catering Order")
+
+        # 3. Revert Game Outreach Status → Responded
+        if game_id:
+            try:
+                notion.pages.update(
+                    page_id=game_id,
+                    properties={"Outreach Status": {"select": {"name": "Responded"}}}
+                )
+                log(f"    Game status → Responded")
+            except APIResponseError as e:
+                log(f"    Error reverting game status: {e}")
+
+        # 4. Revert Email Queue entry
+        if game_id:
+            try:
+                eq_response = notion.databases.query(
+                    database_id=email_queue_db,
+                    filter={"property": "Game", "relation": {"contains": game_id}}
+                )
+                for eq in eq_response['results']:
+                    eq_status = eq['properties'].get('Status', {}).get('select', {})
+                    if eq_status and eq_status.get('name') == 'Booked':
+                        notion.pages.update(
+                            page_id=eq['id'],
+                            properties={
+                                "Status": {"select": {"name": "Responded"}},
+                                "Undo Order": {"checkbox": False}
+                            }
+                        )
+                        log(f"    Email status → Responded")
+            except APIResponseError as e:
+                log(f"    Error reverting email status: {e}")
+
+        stats['undone'] += 1
+
+    return stats
+
+
+def process_dashboard_undo_orders(notion, orders_db, games_db, email_queue_db):
+    """Process 'Undo Order' checked on Dashboard Catering Orders (Catering Ops calendar).
+
+    Since the Catering Orders DB is multi-source (can't use databases.query),
+    we iterate the mapping file and check each dashboard order individually.
+    """
+    mapping_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                '.tmp', 'catering_order_mapping.json')
+    if not os.path.exists(mapping_file):
+        return {'processed': 0, 'undone': 0, 'failed': 0}
+
+    try:
+        with open(mapping_file, 'r') as f:
+            mapping = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {'processed': 0, 'undone': 0, 'failed': 0}
+
+    if not mapping:
+        return {'processed': 0, 'undone': 0, 'failed': 0}
+
+    stats = {'processed': 0, 'undone': 0, 'failed': 0}
+    to_remove = []
+
+    for game_id, catering_page_id in mapping.items():
+        # Check if dashboard order has Undo Order checked
+        try:
+            page = notion.pages.retrieve(page_id=catering_page_id)
+        except APIResponseError:
+            continue
+
+        if page.get('archived', False):
+            to_remove.append(game_id)
+            continue
+
+        undo_checked = page.get('properties', {}).get('Undo Order', {}).get('checkbox', False)
+        if not undo_checked:
+            continue
+
+        order_name = extract_title(
+            page.get('properties', {}).get('Order Name', {}).get('title', []))
+        log(f"  Dashboard undo: {order_name} (game: {game_id[:8]}...)")
+        stats['processed'] += 1
+
+        # 1. Archive the dashboard catering order
+        try:
+            notion.pages.update(page_id=catering_page_id, archived=True)
+            log(f"    Archived Dashboard Catering Order")
+            to_remove.append(game_id)
+        except APIResponseError as e:
+            log(f"    Error archiving dashboard order: {e}")
+            stats['failed'] += 1
+            continue
+
+        # 2. Archive Sports Automation Order(s) for this game
+        order_ids = find_orders_for_game(notion, orders_db, game_id)
+        for oid in order_ids:
+            try:
+                notion.pages.update(page_id=oid, archived=True)
+                log(f"    Archived Sports Order: {oid[:8]}...")
+            except APIResponseError as e:
+                log(f"    Error archiving order {oid[:8]}: {e}")
+
+        # 3. Revert Game Outreach Status → Responded
+        try:
+            notion.pages.update(
+                page_id=game_id,
+                properties={"Outreach Status": {"select": {"name": "Responded"}}}
+            )
+            log(f"    Game status -> Responded")
+        except APIResponseError as e:
+            log(f"    Error reverting game status: {e}")
+
+        # 4. Revert Email Queue entry (find by Game relation)
+        try:
+            eq_response = notion.databases.query(
+                database_id=email_queue_db,
+                filter={"property": "Game", "relation": {"contains": game_id}}
+            )
+            for eq in eq_response['results']:
+                eq_status = eq['properties'].get('Status', {}).get('select', {})
+                if eq_status and eq_status.get('name') == 'Booked':
+                    notion.pages.update(
+                        page_id=eq['id'],
+                        properties={
+                            "Status": {"select": {"name": "Responded"}},
+                            "Undo Order": {"checkbox": False}
+                        }
+                    )
+                    log(f"    Email status -> Responded")
+        except APIResponseError as e:
+            log(f"    Error reverting email status: {e}")
+
+        stats['undone'] += 1
+
+    # Clean up mapping file
+    if to_remove:
+        for gid in to_remove:
+            mapping.pop(gid, None)
+        with open(mapping_file, 'w') as f:
+            json.dump(mapping, f, indent=2)
 
     return stats
 

@@ -177,7 +177,10 @@ def run_undo_processors():
     log("Checking for undo requests...")
 
     try:
-        from notion_convert_to_order import process_undo_orders, process_undo_outreach
+        from notion_convert_to_order import (
+            process_undo_orders, process_undo_outreach,
+            process_dashboard_undo_orders, process_sports_order_undo
+        )
         from notion_client import Client
 
         notion = Client(auth=os.getenv('NOTION_API_KEY'))
@@ -191,16 +194,38 @@ def run_undo_processors():
             notion, email_queue_db, orders_db, games_db, contacts_db
         )
 
-        total_undone = undo_order_stats.get('undone', 0) + undo_outreach_stats.get('undone', 0)
+        # Also check Dashboard Catering Orders for Undo Order checkbox
+        dashboard_undo_stats = process_dashboard_undo_orders(
+            notion, orders_db, games_db, email_queue_db
+        )
+
+        # Also check Sports Orders DB for Undo Order checkbox
+        sports_undo_stats = process_sports_order_undo(
+            notion, orders_db, games_db, email_queue_db
+        )
+
+        total_undone = (undo_order_stats.get('undone', 0)
+                        + undo_outreach_stats.get('undone', 0)
+                        + dashboard_undo_stats.get('undone', 0)
+                        + sports_undo_stats.get('undone', 0))
         if total_undone > 0:
             parts = []
             if undo_order_stats.get('undone', 0) > 0:
                 parts.append(f"{undo_order_stats['undone']} order(s) undone")
             if undo_outreach_stats.get('undone', 0) > 0:
                 parts.append(f"{undo_outreach_stats['undone']} outreach(es) undone")
+            if dashboard_undo_stats.get('undone', 0) > 0:
+                parts.append(f"{dashboard_undo_stats['undone']} dashboard order(s) undone")
+            if sports_undo_stats.get('undone', 0) > 0:
+                parts.append(f"{sports_undo_stats['undone']} sports order(s) undone")
             log(', '.join(parts))
 
-        return {'undo_orders': undo_order_stats, 'undo_outreach': undo_outreach_stats}
+        return {
+            'undo_orders': undo_order_stats,
+            'undo_outreach': undo_outreach_stats,
+            'undo_dashboard': dashboard_undo_stats,
+            'undo_sports': sports_undo_stats
+        }
 
     except Exception as e:
         log(f"Error in undo processors: {e}")
@@ -534,8 +559,10 @@ def main():
     log(f"Responses found: {response_stats.get('replies_found', 0)}")
     undo_order_count = undo_stats.get('undo_orders', {}).get('undone', 0)
     undo_outreach_count = undo_stats.get('undo_outreach', {}).get('undone', 0)
-    if undo_order_count > 0 or undo_outreach_count > 0:
-        log(f"Undone: {undo_order_count} order(s), {undo_outreach_count} outreach(es)")
+    undo_dashboard_count = undo_stats.get('undo_dashboard', {}).get('undone', 0)
+    total_undone = undo_order_count + undo_outreach_count + undo_dashboard_count
+    if total_undone > 0:
+        log(f"Undone: {undo_order_count} order(s), {undo_outreach_count} outreach(es), {undo_dashboard_count} dashboard")
     log(f"Orders created: {order_stats.get('created', 0)}")
     if cleanup_stats.get('archived', 0) > 0:
         log(f"Expired emails archived: {cleanup_stats['archived']}")
