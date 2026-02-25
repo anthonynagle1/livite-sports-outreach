@@ -71,8 +71,8 @@ def run_cron():
 
         last_run["time"] = datetime.utcnow().isoformat()
         last_run["status"] = "success" if result.returncode == 0 else "error"
-        # Keep last 2000 chars of output
-        last_run["output"] = (result.stderr or "")[-2000:]
+        # Keep last 5000 chars of output
+        last_run["output"] = (result.stderr or "")[-5000:]
 
         return {
             "status": last_run["status"],
@@ -164,6 +164,30 @@ def health():
         "last_status": last_run["status"],
         "is_running": is_running,
     })
+
+
+@app.route("/logs")
+def logs():
+    """Show last cron output for debugging."""
+    output = last_run.get("output") or "No output yet"
+    last_time = last_run["time"] or "Never"
+    last_status = last_run["status"] or "Not run yet"
+
+    # Escape HTML
+    import html
+    output_escaped = html.escape(output)
+
+    return f"""
+    <html>
+    <head><title>Livite CRM Logs</title></head>
+    <body style="font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee;">
+        <h2>Last Run: {last_time} — {last_status}</h2>
+        <pre style="white-space: pre-wrap; background: #16213e; padding: 16px; border-radius: 8px;">{output_escaped}</pre>
+        <br>
+        <a href="/" style="color: #2ecc71;">Back</a>
+    </body>
+    </html>
+    """
 
 
 if __name__ == "__main__":

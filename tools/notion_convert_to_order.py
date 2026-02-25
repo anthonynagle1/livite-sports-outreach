@@ -267,6 +267,7 @@ def create_dashboard_catering_order(notion, email_props, game_data):
     support. Falls back to pending file if the API call fails.
     """
     catering_ds = os.getenv('NOTION_CATERING_ORDERS_DS')
+    log(f"    Dashboard order: NOTION_CATERING_ORDERS_DS={'set (' + catering_ds[:8] + '...)' if catering_ds else 'NOT SET'}")
     if not catering_ds:
         log("    WARNING: NOTION_CATERING_ORDERS_DS not set — skipping Dashboard Catering Order")
         return None
@@ -332,6 +333,7 @@ def create_dashboard_catering_order(notion, email_props, game_data):
         'properties': properties
     }
 
+    log(f"    Calling Notion API: POST /v1/pages with data_source_id={catering_ds[:8]}...")
     try:
         response = http_requests.post(
             'https://api.notion.com/v1/pages',
@@ -340,16 +342,17 @@ def create_dashboard_catering_order(notion, email_props, game_data):
             timeout=30
         )
 
+        log(f"    API response: {response.status_code}")
         if response.status_code in (200, 201):
             page_id = response.json()['id']
             save_catering_order_mapping(game_id, page_id)
             log(f"    Created Dashboard Catering Order: {order_name} ({page_id})")
             return {'page_id': page_id, 'order_name': order_name, 'direct': True}
         else:
-            log(f"    Direct API failed ({response.status_code}): {response.text[:200]}")
+            log(f"    Direct API failed ({response.status_code}): {response.text[:500]}")
             log(f"    Falling back to pending file...")
     except Exception as e:
-        log(f"    Direct API error: {e}")
+        log(f"    Direct API error: {type(e).__name__}: {e}")
         log(f"    Falling back to pending file...")
 
     # Fallback: save to pending file for MCP creation

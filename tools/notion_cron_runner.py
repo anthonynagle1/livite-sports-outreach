@@ -560,9 +560,10 @@ def main():
     undo_order_count = undo_stats.get('undo_orders', {}).get('undone', 0)
     undo_outreach_count = undo_stats.get('undo_outreach', {}).get('undone', 0)
     undo_dashboard_count = undo_stats.get('undo_dashboard', {}).get('undone', 0)
-    total_undone = undo_order_count + undo_outreach_count + undo_dashboard_count
+    undo_sports_count = undo_stats.get('undo_sports', {}).get('undone', 0)
+    total_undone = undo_order_count + undo_outreach_count + undo_dashboard_count + undo_sports_count
     if total_undone > 0:
-        log(f"Undone: {undo_order_count} order(s), {undo_outreach_count} outreach(es), {undo_dashboard_count} dashboard")
+        log(f"Undone: {undo_order_count} order(s), {undo_outreach_count} outreach(es), {undo_dashboard_count} dashboard, {undo_sports_count} sports")
     log(f"Orders created: {order_stats.get('created', 0)}")
     if cleanup_stats.get('archived', 0) > 0:
         log(f"Expired emails archived: {cleanup_stats['archived']}")
