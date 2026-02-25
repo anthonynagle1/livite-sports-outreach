@@ -3,7 +3,7 @@ services:
     name: livite-crm
     runtime: python
     rootDir: .
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r sync-trigger/requirements.txt
     startCommand: gunicorn sync-trigger.app:app --timeout 300
     envVars:
       - key: NOTION_API_KEY
