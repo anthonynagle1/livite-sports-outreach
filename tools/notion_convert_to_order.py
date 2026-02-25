@@ -81,6 +81,7 @@ def get_game_details(notion, game_page_id):
             'game_id': game_page_id,
             'sport': props.get('Sport', {}).get('select', {}).get('name', ''),
             'venue': extract_text(props.get('Venue', {}).get('rich_text', [])),
+            'visiting_team': extract_text(props.get('Visiting Team', {}).get('rich_text', [])),
             'game_date': '',
             'home_school_id': None,
             'home_school': '',
@@ -279,26 +280,35 @@ def create_dashboard_catering_order(notion, email_props, game_data):
         log("    WARNING: NOTION_CATERING_ORDERS_DS not set — skipping Dashboard Catering Order")
         return None
 
-    # Build order name: "School MM.DD"
+    # Build order name: "School Sport MM.DD"
     school = game_data.get('away_school') or game_data.get('home_school') or 'Unknown'
+    sport = game_data.get('sport', '')
     game_date = game_data.get('game_date', '')
     if game_date:
         try:
             dt = datetime.strptime(game_date, '%Y-%m-%d')
-            order_name = f"{school} {dt.strftime('%m.%d')}"
+            date_part = dt.strftime('%m.%d')
         except ValueError:
-            order_name = f"{school} {game_date}"
+            date_part = game_date
     else:
-        order_name = school
+        date_part = ''
+    name_parts = [school]
+    if sport:
+        name_parts.append(sport)
+    if date_part:
+        name_parts.append(date_part)
+    order_name = ' '.join(name_parts)
 
-    # Get contact email for Dashboard Contact matching
+    # Get contact email and name for Dashboard Contact matching
     contact_email = ''
+    contact_name = ''
     contact_rel = email_props.get('Contact', {}).get('relation', [])
     dashboard_contact_id = None
     if contact_rel:
         try:
             contact = notion.pages.retrieve(page_id=contact_rel[0]['id'])
             contact_email = contact['properties'].get('Email', {}).get('email', '') or ''
+            contact_name = extract_title(contact['properties'].get('Name', {}).get('title', []))
         except APIResponseError:
             pass
 
@@ -307,6 +317,17 @@ def create_dashboard_catering_order(notion, email_props, game_data):
 
     # Get response notes
     notes = extract_text(email_props.get('Response Notes', {}).get('rich_text', []))
+
+    # Build delivery notes with game context
+    delivery_parts = []
+    visiting = game_data.get('visiting_team', '')
+    if visiting:
+        delivery_parts.append("Visiting: {}".format(visiting))
+    if contact_name:
+        delivery_parts.append("Contact: {}".format(contact_name))
+    if contact_email:
+        delivery_parts.append("Email: {}".format(contact_email))
+    delivery_notes = ' | '.join(delivery_parts)
 
     game_id = game_data.get('game_id', '')
 
@@ -332,6 +353,8 @@ def create_dashboard_catering_order(notion, email_props, game_data):
         properties['Delivery Address'] = {'rich_text': [{'text': {'content': game_data['venue']}}]}
     if notes:
         properties['Notes'] = {'rich_text': [{'text': {'content': notes[:2000]}}]}
+    if delivery_notes:
+        properties['Delivery Notes'] = {'rich_text': [{'text': {'content': delivery_notes[:2000]}}]}
     if dashboard_contact_id:
         properties['Contacts'] = {'relation': [{'id': dashboard_contact_id}]}
 
@@ -437,11 +460,20 @@ def find_catering_order_by_query(notion, game_data):
     if not school or not game_date:
         return None
 
+    sport = game_data.get('sport', '')
     try:
         dt = datetime.strptime(game_date, '%Y-%m-%d')
-        expected_name = "{} {}".format(school, dt.strftime('%m.%d'))
+        date_part = dt.strftime('%m.%d')
     except ValueError:
-        expected_name = school
+        date_part = game_date
+
+    # Build expected name: "School Sport MM.DD" (matches create_dashboard_catering_order)
+    name_parts = [school]
+    if sport:
+        name_parts.append(sport)
+    if date_part:
+        name_parts.append(date_part)
+    expected_name = ' '.join(name_parts)
 
     # Normalize the catering DB ID (remove dashes for comparison)
     catering_db_norm = catering_db.replace('-', '')
