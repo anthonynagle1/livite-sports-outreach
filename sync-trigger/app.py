@@ -2,10 +2,12 @@
 Livite CRM Cron Service — runs on Render free tier.
 
 Endpoints:
-  /        — Status page with manual sync button
-  /cron    — Runs the CRM pipeline (hit by external pinger every 2 min)
-  /sync    — Manual trigger (same as /cron but with redirect UI)
-  /health  — Health check for uptime monitors
+  /          — Status page with manual sync button
+  /cron      — Runs the CRM pipeline (hit by external pinger every 2 min)
+  /crm-cron  — Alias for /cron
+  /sync      — Manual trigger (same as /cron but with redirect UI)
+  /health    — Health check for uptime monitors
+  /logs      — View last cron output for debugging
 
 Setup:
   1. Deploy to Render as a web service
@@ -123,6 +125,7 @@ def home():
 
 
 @app.route("/cron")
+@app.route("/crm-cron")
 def cron():
     """Endpoint for external cron pinger (cron-job.org, UptimeRobot, etc.)."""
     result = run_cron()
