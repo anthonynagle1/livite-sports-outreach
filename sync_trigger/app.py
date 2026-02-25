@@ -169,6 +169,22 @@ def health():
     })
 
 
+@app.route("/debug")
+def debug():
+    """Debug endpoint — show runtime info."""
+    import platform
+    info = {"python": platform.python_version()}
+    try:
+        from notion_client import Client
+        c = Client(auth="test")
+        info["notion_client_has_query"] = hasattr(c.databases, "query")
+        info["databases_type"] = str(type(c.databases))
+        info["databases_dir"] = [x for x in dir(c.databases) if not x.startswith("_")]
+    except Exception as e:
+        info["notion_error"] = str(e)
+    return jsonify(info)
+
+
 @app.route("/logs")
 def logs():
     """Show last cron output for debugging."""
