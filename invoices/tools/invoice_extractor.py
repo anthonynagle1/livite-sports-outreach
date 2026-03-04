@@ -18,7 +18,7 @@ import anthropic
 logger = logging.getLogger(__name__)
 
 CLAUDE_MODEL = os.getenv("PRICE_EXTRACT_MODEL", "claude-haiku-4-5-20251001")
-MAX_TOKENS = 8192
+MAX_TOKENS = 16384
 
 INVOICE_SYSTEM_PROMPT = """You extract structured data from restaurant vendor invoices.
 
@@ -50,11 +50,12 @@ Rules:
 - due_date: payment due date if shown, otherwise null
 - vendor_total: the document's stated total (bottom line total)
 - unit_price: price for ONE unit (case, lb, each, etc.) — NOT the extended total
-- extended_price: quantity × unit_price (the line total)
+- extended_price: quantity × unit_price (the line total). Negative for credits/returns.
 - If only extended_price is shown, divide by quantity to get unit_price
 - category: one of protein, produce, dairy, dry_goods, canned_goods, frozen, beverages, oils_condiments, bakery, paper_supplies, cleaning, equipment, other
 - unit: normalize to case, lb, each, gallon, bag, box, dozen, pack
-- IGNORE subtotals, tax, delivery charges, credits, and footer info
+- INCLUDE credits and returns as negative-quantity items (quantity=-1 means credit/return)
+- IGNORE subtotals, tax, delivery charges, and footer totals only
 - For Restaurant Depot receipts: descriptions are abbreviated, item codes are 5-7 digits
 - For Sysco invoices: look for "Invoice No" in the header area
 - Photos may be blurry or angled — extract what you can read
@@ -81,8 +82,6 @@ def _call_claude(system: str, messages: list) -> str:
         system=system,
         messages=messages,
     )
-    if not message.content:
-        raise ValueError("Claude returned empty response content")
     return message.content[0].text
 
 
@@ -110,6 +109,49 @@ def _extract_from_images(image_list: list[tuple[bytes, str]], vendor: str) -> di
 
     resp = _call_claude(system, [{"role": "user", "content": content_blocks}])
     return _parse_json(resp)
+
+
+def _dedup_items(items: list[dict]) -> list[dict]:
+    """Merge duplicate line items (same name + unit) by summing quantities.
+
+    Credits (negative quantity) are kept separate and not merged into positives.
+    Items with the same name+unit and same-sign quantity are merged.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    order: list[tuple] = []
+
+    for item in items:
+        name = (item.get("item_name") or "").strip().upper()
+        unit = (item.get("unit") or "").strip().lower()
+        qty = float(item.get("quantity", 1) or 1)
+        # Separate positive from negative so credits don't cancel purchases
+        sign = "neg" if qty < 0 else "pos"
+        key = (name, unit, sign)
+
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(item)
+
+    merged = []
+    for key in order:
+        group = groups[key]
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+
+        # Merge: sum quantity and extended_price, keep unit_price from first
+        base = dict(group[0])
+        total_qty = sum(float(g.get("quantity", 1) or 1) for g in group)
+        total_ext = sum(float(g.get("extended_price", 0) or 0) for g in group)
+        base["quantity"] = total_qty
+        base["extended_price"] = round(total_ext, 2)
+        # Recalculate unit_price if needed
+        if total_qty != 0:
+            base["unit_price"] = round(abs(total_ext / total_qty), 2)
+        merged.append(base)
+
+    return merged
 
 
 def extract_invoice(file_path: str, vendor: str) -> dict:
@@ -157,8 +199,11 @@ def extract_invoice(file_path: str, vendor: str) -> dict:
         ep = float(item.get("extended_price", 0) or 0)
         if ep == 0 and up > 0:
             item["extended_price"] = round(qty * up, 2)
-        elif up == 0 and ep > 0 and qty > 0:
-            item["unit_price"] = round(ep / qty, 2)
+        elif up == 0 and ep != 0 and qty != 0:
+            item["unit_price"] = round(abs(ep / qty), 2)
+
+    # Deduplicate: merge same-name+unit items, keep credits separate
+    result["items"] = _dedup_items(result.get("items", []))
 
     # Try item normalization against Items Master
     result["items"] = _try_normalize(result.get("items", []), vendor)
@@ -177,26 +222,14 @@ def _extract_from_pdf(file_path: str, file_bytes: bytes, vendor: str) -> dict:
 
     all_text = []
     pdf_images = []
-    try:
-        with pdfplumber.open(file_path) as pdf:
-            if not pdf.pages:
-                raise ValueError("PDF has no pages")
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                all_text.append(text)
-                try:
-                    img = page.to_image(resolution=200)
-                    buf = io.BytesIO()
-                    img.original.save(buf, format="PNG")
-                    pdf_images.append(buf.getvalue())
-                except Exception as e:
-                    logger.warning("PDF page image conversion failed: %s", e)
-    except Exception as e:
-        logger.error("PDF open/parse failed for %s: %s", file_path, e)
-        raise ValueError(f"Could not read PDF: {e}")
-
-    if not pdf_images:
-        raise ValueError("No pages could be rendered from PDF")
+    with pdfplumber.open(file_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            all_text.append(text)
+            img = page.to_image(resolution=200)
+            buf = io.BytesIO()
+            img.original.save(buf, format="PNG")
+            pdf_images.append(buf.getvalue())
 
     combined_text = "\n".join(all_text)
 
@@ -216,12 +249,8 @@ def _extract_from_pdf(file_path: str, file_bytes: bytes, vendor: str) -> dict:
 def _try_normalize(items: list[dict], vendor: str) -> list[dict]:
     """Try to match extracted items against Items Master. Non-fatal on failure."""
     try:
-        import os as _os
-        from vendor_prices.tools.notion_sync import get_all_items
-        items_db_id = _os.getenv("NOTION_ITEMS_DB_ID", "")
-        if not items_db_id:
-            return items
-        master_items = get_all_items(items_db_id)
+        from vendor_prices.tools.notion_sync import get_items_master
+        master_items = get_items_master()
         if not master_items:
             return items
 

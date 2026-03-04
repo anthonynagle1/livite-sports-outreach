@@ -1,0 +1,401 @@
+# Livite Dashboard — Business Configuration
+# Edit this file to update wages, channels, and constants.
+# No code changes needed — just update values and restart the app.
+
+# ─── Users ───
+# Username/password pairs for dashboard login.
+# Roles: owner (full access), manager (vendor prices only)
+users:
+  anthony:
+    password: livite2026
+    name: Anthony
+    role: owner
+  stephen:
+    password: livite2026
+    name: Stephen
+    role: owner
+  laurie:
+    password: livite2026
+    name: Laurie
+    role: owner
+  pedro:
+    password: livite2026
+    name: Pedro
+    role: manager
+  zadith:
+    password: livite2026
+    name: Zadith
+    role: manager
+  leah:
+    password: livite2026
+    name: Leah
+    role: manager
+
+# ─── Constants ───
+payroll_tax_rate: 3.00     # $/hr per employee (employer-side)
+food_cost_pct: 0.35        # 35% of revenue
+earliest_date: "2024-11-07"  # First day of Toast data in Azure
+
+# ─── Channel Map ───
+# Toast "Dining Options" value → Tracker column name
+channel_map:
+  "DoorDash - Delivery": "DD Delivery"
+  "DoorDash - Takeout": "DD Takeout"
+  "Grubhub - Delivery": "GH Delivery"
+  "Grubhub - Takeout": "GH Takeout"
+  "Online Ordering - Takeout": "Online"
+  "Online Ordering - Delivery": "Online Ordering - Delivery"
+  "Phone": "Phone"
+  "To Go": "To Go"
+  "Uber Eats - Delivery": "Uber Delivery"
+  "Uber Eats - Takeout": "Uber Takeout"
+  "Catering Delivery": "Catering Delivery"
+  "E-Gift Cards": "E-Gift Cards"
+  "Delivery": "Delivery"
+
+# ─── Employee Aliases ───
+# Toast sometimes uses different name spellings.
+# Format: "toast spelling, as it appears" → "master table spelling"
+employee_aliases:
+  "tytell, elizabeth": "tytell, ellie"
+  "catano, jairo": "catano, leon"
+  "vasquez, rosmery andrea": "andrea vasquez, rosmery"
+  "a, aurora": "marroquin, aura"
+  "sarmiento vega, rosa": "sarmiento, rosa"
+  "levitt, gabriela": "levitt, gabby"
+  "ohalloran, abby": "o'halloran, abby"
+  "zierten singleton, simone": "zierten-singleton, simone"
+  "yin, shawn": "yin, shangjun"
+
+# ─── Master Wage Table ───
+# Source of truth for employee pay rates. Toast wages are often wrong.
+# Keys: lowercase "last, first" to match Toast's Employee column format.
+# Types: hourly, manager, owner
+# gusto_id: Gusto employee identifier for payroll CSV export
+# tips: true/false — whether employee participates in tip pool
+# ot_rate: manager OT rate for hours over 50/week (manager type only)
+#
+# When a new employee is hired: add them here.
+# When a wage changes: update the wage value.
+# When someone leaves: you can remove them or leave them (no harm).
+wages:
+  # ── Managers ──
+  "delcid, zadith":
+    wage: 38.47
+    type: manager
+    ot_threshold: 50
+    ot_rate: 31.00
+    gusto_id: "ezq5xn"
+    tips: false
+
+  "interiano, pedro":
+    wage: 32.00
+    type: manager
+    ot_threshold: 50
+    ot_rate: 28.00
+    gusto_id: "ezc4ku"
+    tips: false
+
+  "lakomski, leah":
+    wage: 29.00
+    type: manager
+    ot_threshold: 50
+    ot_rate: 28.00
+    gusto_id: 816252
+    tips: false
+
+  # ── Owners ──
+  "nagle, anthony":
+    wage: 0
+    type: owner
+    replacement_wage: 25.00
+    gusto_id: "xqaim2"
+    tips: false
+
+  "nagle, stephen":
+    wage: 0
+    type: owner
+    replacement_wage: 25.00
+    gusto_id: "d5jqmk"
+    tips: false
+
+  "nagle, laurie":
+    wage: 0
+    type: owner
+    replacement_wage: 25.00
+    gusto_id: "f5z4ia"
+    tips: false
+
+  # ── Hourly Staff ──
+  "catano, leon":
+    wage: 22.50
+    type: hourly
+    gusto_id: "zmorrp"
+    tips: false
+
+  "lainez, gloria":
+    wage: 21.00
+    type: hourly
+    gusto_id: "119cdc"
+    tips: false
+
+  "castrillon, arturo":
+    wage: 20.00
+    type: hourly
+    gusto_id: 518054
+    tips: false
+
+  "castro, kelly":
+    wage: 20.00
+    type: hourly
+    gusto_id: "87cd91"
+    tips: false
+
+  "duran, monica":
+    wage: 20.00
+    type: hourly
+    gusto_id: "e37734"
+    tips: false
+
+  "cardeno, vanessa":
+    wage: 20.00
+    type: hourly
+    gusto_id: "95184a"
+    tips: false
+
+  "hawley, henry":
+    wage: 20.00
+    type: hourly
+    gusto_id: "pmlxuk"
+    tips: true
+
+  "chavarria, leidy":
+    wage: 19.00
+    type: hourly
+    gusto_id: 518821
+    tips: false
+
+  "jerez, valeria":
+    wage: 19.00
+    type: hourly
+    gusto_id: "54fcb8"
+    tips: true
+
+  "medina, natalia":
+    wage: 19.00
+    type: hourly
+    gusto_id: "hg8mof"
+    tips: true
+
+  "vega, anyi":
+    wage: 19.00
+    type: hourly
+    gusto_id: "97c27c"
+    tips: true
+
+  "nagle, jake":
+    wage: 18.00
+    type: hourly
+    gusto_id: 34106
+    tips: true
+
+  "nagle, emma":
+    wage: 18.00
+    type: hourly
+    gusto_id: "dd8b71"
+    tips: true
+
+  "horvath, may":
+    wage: 18.00
+    type: hourly
+    gusto_id: "36b95f"
+    tips: true
+
+  "istre, autumn":
+    wage: 18.00
+    type: hourly
+    gusto_id: "nn5dnw"
+    tips: true
+
+  "jones, chloe":
+    wage: 18.00
+    type: hourly
+    gusto_id: "8b9bd1"
+    tips: true
+
+  "machado, rosanna":
+    wage: 18.00
+    type: hourly
+    gusto_id: "fba34b"
+    tips: true
+
+  "andrea vasquez, rosmery":
+    wage: 18.00
+    type: hourly
+    gusto_id: 184683
+    tips: false
+
+  "cohen, danielle":
+    wage: 17.00
+    type: hourly
+    gusto_id: "eb15ba"
+    tips: true
+
+  "justo, david":
+    wage: 17.00
+    type: hourly
+    gusto_id: "5ef175"
+    tips: true
+
+  "levitt, gabby":
+    wage: 17.00
+    type: hourly
+    gusto_id: "3a0fbb"
+    tips: true
+
+  "zierten-singleton, uma":
+    wage: 17.00
+    type: hourly
+    gusto_id: "yyocmw"
+    tips: true
+
+  "leon lacruz, deixon":
+    wage: 17.00
+    type: hourly
+    gusto_id: "949c4d"
+    tips: true
+
+  "braun, iris":
+    wage: 16.00
+    type: hourly
+    gusto_id: "ze9znw"
+    tips: true
+
+  "marroquin, aura":
+    wage: 16.00
+    type: hourly
+    gusto_id: "c69264"
+    tips: true
+
+  "sarmiento, rosa":
+    wage: 16.00
+    type: hourly
+    gusto_id: "13f9ac"
+    tips: true
+
+  "tolis, george":
+    wage: 16.00
+    type: hourly
+    gusto_id: "0610bf"
+    tips: true
+
+  "garvey, luke":
+    wage: 15.50
+    type: hourly
+    gusto_id: "9dfb1c"
+    tips: true
+
+  "lerra, trey":
+    wage: 15.50
+    type: hourly
+    gusto_id: "6f4247"
+    tips: true
+
+  "o'halloran, abby":
+    wage: 15.50
+    type: hourly
+    gusto_id: "d8fe7d"
+    tips: true
+
+  "odonnell, jed":
+    wage: 15.50
+    type: hourly
+    gusto_id: "cxlpot"
+    tips: true
+
+  "ramirez, kerisa":
+    wage: 15.50
+    type: hourly
+    gusto_id: "f03f2a"
+    tips: true
+
+  "tandon, armaan":
+    wage: 15.50
+    type: hourly
+    gusto_id: "6db717"
+    tips: true
+
+  "tytell, ellie":
+    wage: 15.50
+    type: hourly
+    gusto_id: "d933eb"
+    tips: true
+
+  "vasquez, andrea":
+    wage: 15.50
+    type: hourly
+    gusto_id: "0331a1"
+    tips: true
+
+  "yin, shangjun":
+    wage: 15.50
+    type: hourly
+    gusto_id: "337bcc"
+    tips: true
+
+  "busler, adina":
+    wage: 15.50
+    type: hourly
+    gusto_id: 987511
+    tips: true
+
+  "zierten-singleton, simone":
+    wage: 15.50
+    type: hourly
+    gusto_id: "eb9d23"
+    tips: true
+
+  "beatrix, aliana":
+    wage: 15.50
+    type: hourly
+    gusto_id: ""
+    tips: false
+
+# ─── Payroll Config ───
+payroll:
+  # Meire Medeiros — catering sales manager, not in Toast/Homebase
+  meire:
+    first_name: "Meire"
+    last_name: "Medeiros"
+    gusto_id: ""  # TODO: get Meire's Gusto employee ID
+    hours: 40
+    notion_db: "2d042679f1a3807da756d93f50cac98a"
+  # Social media bonus rate for Danielle Cohen
+  danielle_sm_rate: 19.00
+
+# ─── Fixed Costs ───
+# Daily fixed cost schedule. Entries are checked newest-first; first match wins.
+# date: YYYYMMDD cutoff. "amount" is the daily fixed cost from that date onward.
+fixed_costs:
+  schedule:
+    - date: "20260216"
+      amount: 850        # From Feb 16 2026 onwards: $850/day
+  default: 1150           # Before any cutoff
+
+# ─── Locations ───
+# Multi-location support. Default location used for invoices and P&L.
+locations:
+  brookline:
+    name: "Brookline"
+    active: true
+    default: true
+
+# ─── Daily Email Report ───
+# Automatically emails yesterday's dashboard every morning.
+# Uses existing Google OAuth credentials (GOOGLE_CLIENT_ID, etc.) from .env.
+# Sends from your Gmail (anthonynagle13@gmail.com) via Gmail API.
+daily_email:
+  enabled: true
+  send_time: "08:00"  # Eastern Time
+  recipients:
+    - anthony@livite.com

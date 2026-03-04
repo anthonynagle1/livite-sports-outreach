@@ -115,7 +115,7 @@ def index_page():
         )
 
     if not rows:
-        rows = '<tr><td colspan="6" style="text-align:center;color:#999;padding:2rem;">No invoices yet. <a href="/invoices/new" style="color:#4a7c1f;">Add your first invoice</a></td></tr>'
+        rows = '<tr><td colspan="6" style="text-align:center;color:#999;padding:2rem;">No invoices yet. <a href="/invoices/new" style="color:#475417;">Add your first invoice</a></td></tr>'
 
     # Storage stats
     stats = get_storage_stats()
@@ -180,7 +180,7 @@ def detail_page(invoice_id):
 
         match_badge = ""
         if li.get("master_item_name"):
-            match_badge = '<div style="font-size:0.7rem;color:#4a7c1f;">%s</div>' % li["master_item_name"]
+            match_badge = '<div style="font-size:0.7rem;color:#475417;">%s</div>' % li["master_item_name"]
 
         li_rows += """<tr>
   <td>%s%s</td>
@@ -314,22 +314,12 @@ def api_save():
 
     inv = create_invoice(data)
 
-    # Always sync prices to vendor price tracker (skip credits / negative items)
-    if inv.get("line_items"):
+    # Optionally sync prices to vendor price tracker
+    if data.get("sync_prices") and inv.get("line_items"):
         try:
             _sync_prices_to_notion(inv)
         except Exception as e:
             logger.warning("Price sync failed: %s", e)
-
-    # Async sync to Notion Invoices DB (if configured)
-    import threading
-    def _notion_sync():
-        try:
-            from invoices.tools.notion_invoice_sync import sync_invoice_to_notion
-            sync_invoice_to_notion(inv)
-        except Exception as e:
-            logger.warning("Notion invoice sync failed for %s: %s", inv.get("id"), e)
-    threading.Thread(target=_notion_sync, daemon=True).start()
 
     return jsonify({"ok": True, "invoice": {"id": inv["id"], "vendor": inv["vendor"]}})
 
@@ -353,16 +343,6 @@ def api_update_status(invoice_id):
     inv = update_invoice(invoice_id, **updates)
     if not inv:
         return jsonify({"ok": False, "error": "Invoice not found"})
-
-    # Keep Notion in sync (non-blocking)
-    import threading
-    def _notion_status_sync():
-        try:
-            from invoices.tools.notion_invoice_sync import update_invoice_status_notion
-            update_invoice_status_notion(invoice_id, new_status)
-        except Exception as e:
-            logger.warning("Notion status sync failed for %s: %s", invoice_id, e)
-    threading.Thread(target=_notion_status_sync, daemon=True).start()
 
     return jsonify({"ok": True, "status": new_status})
 
@@ -396,10 +376,7 @@ def api_serve_file(invoice_id, file_idx):
 @bp.route("/api/weekly-totals")
 def api_weekly_totals():
     """Return invoice totals aggregated by ISO week."""
-    try:
-        weeks = max(1, min(int(request.args.get("weeks", "12")), 52))
-    except (ValueError, TypeError):
-        weeks = 12
+    weeks = int(request.args.get("weeks", "12"))
     return jsonify(get_weekly_totals(weeks))
 
 
@@ -409,55 +386,48 @@ def api_weekly_totals():
 def _sync_prices_to_notion(inv):
     """Push line item prices to the vendor price tracker Notion DB.
 
-    Skips credits (negative quantity / negative price) and items with no master_item_id.
-    Uses add_price_entry() — the correct function name (create_price_entry does not exist).
+    Invoice date takes priority: if the invoice date is more recent than any
+    existing price update for that item+vendor, the invoice price is used as
+    the current price (it will be the most recent dated entry in the DB).
+    Credits (negative quantity) are skipped — they don't reflect a purchase price.
     """
     from vendor_prices.tools import notion_sync
 
     prices_db = os.getenv("NOTION_PRICES_DB_ID", "")
     items_db = os.getenv("NOTION_ITEMS_DB_ID", "")
     if not prices_db or not items_db:
-        logger.info("Price sync skipped — NOTION_PRICES_DB_ID or NOTION_ITEMS_DB_ID not set")
         return
 
     vendor = inv.get("vendor", "")
     week = inv.get("week", "")
     invoice_date = inv.get("invoice_date", "")
-    source_file = (inv.get("source_files") or [{}])[0].get("filename", "")
-    synced = 0
 
     for li in inv.get("line_items", []):
         master_id = li.get("master_item_id")
-        unit_price = li.get("unit_price") or 0
-        qty = li.get("quantity") or 1
-
-        # Skip credits and items without a master match or price
-        if not master_id or unit_price <= 0 or qty < 0:
+        # Skip unmatched items and credits (negative qty = return, not a purchase price)
+        if not master_id or not li.get("unit_price"):
             continue
-
-        extended = li.get("extended_price") or round(unit_price * qty, 2)
+        if li.get("is_credit") or float(li.get("quantity", 1) or 1) < 0:
+            continue
 
         try:
             notion_sync.add_price_entry(
                 prices_db_id=prices_db,
                 item_page_id=master_id,
                 vendor=vendor,
-                price=unit_price,
+                price=li["unit_price"],
                 unit=li.get("unit", ""),
+                week=week,
+                entry_date=invoice_date,  # Invoice date = when the price was actually paid
                 vendor_item_name=li.get("item_name", ""),
                 vendor_item_code=li.get("item_code", ""),
-                source_file=source_file,
-                week=week,
-                entry_date=invoice_date,
-                quantity=int(qty),
-                total_cost=extended,
+                source_file=inv.get("source_files", [{}])[0].get("filename", ""),
+                quantity=int(float(li.get("quantity", 1) or 1)),
+                total_cost=li.get("extended_price"),
+                upload_type="Purchase",
             )
-            synced += 1
         except Exception as e:
             logger.warning("Price entry sync failed for %s: %s", li.get("item_name"), e)
-
-    logger.info("Invoice %s: synced %d/%d line items to Notion prices",
-                inv.get("id", "?"), synced, len(inv.get("line_items", [])))
 
 
 # ── HTML Templates ────────────────────────────────────────────────
@@ -467,19 +437,23 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ title }} - Livite</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'DM Sans',-apple-system,sans-serif;background:#F5EDDC;color:#333;min-height:100vh;}
-.topnav{background:#475417;color:white;padding:0.8rem 2rem;display:flex;justify-content:space-between;align-items:center;}
-.topnav a{color:#F5EDDC;text-decoration:none;margin-left:1.2rem;font-size:0.85rem;}
-.topnav a:hover{text-decoration:underline;}
-.topnav h1{font-size:1.2rem;font-weight:600;}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 32px;border-bottom:1px solid rgba(0,0,0,0.08);background:rgba(245,237,220,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);position:sticky;top:0;z-index:100;}
+.topbar-brand{display:flex;align-items:center;gap:10px;text-decoration:none;}
+.topbar-logo{width:28px;height:28px;border-radius:8px;background:#475417;display:flex;align-items:center;justify-content:center;color:white;font-family:'DM Serif Display',serif;font-size:15px;}
+.topbar-title{font-family:'DM Serif Display',serif;font-size:18px;font-weight:400;color:#292524;letter-spacing:0.3px;}
+.topbar-nav{display:flex;gap:4px;}
+.topbar-nav a{font-size:13px;font-weight:500;color:#a8a29e;text-decoration:none;padding:6px 14px;border-radius:8px;transition:all 0.2s ease;}
+.topbar-nav a:hover{color:#292524;background:rgba(0,0,0,0.03);}
+.topbar-nav a.active{color:#475417;background:rgba(71,84,23,0.08);}
 .container{max-width:1100px;margin:1.5rem auto;padding:0 1.5rem;}
 .card{background:white;border-radius:12px;padding:1.5rem;margin-bottom:1rem;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
 h2{color:#475417;margin-bottom:0.8rem;font-size:1.1rem;}
-.btn{background:#4a7c1f;color:white;border:none;padding:8px 18px;border-radius:8px;font-size:0.9rem;cursor:pointer;font-weight:500;text-decoration:none;display:inline-block;}
-.btn:hover{background:#3a6216;}
+.btn{background:#475417;color:white;border:none;padding:8px 18px;border-radius:8px;font-size:0.9rem;cursor:pointer;font-weight:500;text-decoration:none;display:inline-block;}
+.btn:hover{background:#3d6819;}
 .btn-outline{background:transparent;color:#475417;border:1px solid #475417;}
 .btn-outline:hover{background:#f0edd4;}
 .btn-sm{padding:4px 12px;font-size:0.8rem;}
@@ -494,12 +468,12 @@ tr:hover{background:#faf6ee;}
 .kpi-val{font-size:1.6rem;font-weight:700;color:#475417;font-family:'JetBrains Mono',monospace;}
 .kpi-label{font-size:0.75rem;color:#7a7265;margin-top:4px;text-transform:uppercase;letter-spacing:0.5px;}
 .drop-zone{border:2px dashed #ccc;border-radius:12px;padding:2.5rem;text-align:center;cursor:pointer;transition:all 0.2s;color:#666;}
-.drop-zone:hover,.drop-zone.dragover{border-color:#4a7c1f;background:#f0f7e6;}
+.drop-zone:hover,.drop-zone.dragover{border-color:#475417;background:rgba(71,84,23,0.05);}
 .drop-zone input[type="file"]{display:none;}
 .vendor-tabs{display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;}
 .vendor-tab{padding:0.5rem 1rem;border:2px solid #ccc;border-radius:8px;cursor:pointer;font-weight:500;transition:all 0.2s;font-size:0.85rem;}
-.vendor-tab.active{border-color:#4a7c1f;background:#4a7c1f;color:white;}
-.vendor-tab:hover{border-color:#4a7c1f;}
+.vendor-tab.active{border-color:#475417;background:#475417;color:white;}
+.vendor-tab:hover{border-color:#475417;}
 .tabs{display:flex;gap:0;margin-bottom:1.5rem;}
 .tab{padding:0.6rem 1.5rem;border:1px solid #e0d5bf;cursor:pointer;font-weight:500;font-size:0.85rem;background:#f5f0e4;transition:all 0.2s;}
 .tab:first-child{border-radius:8px 0 0 8px;}
@@ -508,25 +482,27 @@ tr:hover{background:#faf6ee;}
 .tab-content{display:none;}
 .tab-content.active{display:block;}
 select,input[type="text"],input[type="number"],input[type="date"],textarea{padding:6px 10px;border:1px solid #e0d5bf;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:0.85rem;}
-select:focus,input:focus,textarea:focus{outline:none;border-color:#4a7c1f;}
+select:focus,input:focus,textarea:focus{outline:none;border-color:#475417;}
 .filter-bar{display:flex;gap:0.8rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap;}
 .filter-bar label{font-size:0.8rem;font-weight:600;color:#475417;}
 #status{font-size:0.8rem;color:#7a7265;margin-top:6px;}
 @media(max-width:768px){.container{padding:0 0.8rem;}.kpi-row{grid-template-columns:1fr 1fr;}}
 </style>
 </head><body>
-<div class="topnav">
-  <h1>{{ title }}</h1>
-  <div>
-    <a href="/invoices/">Invoices</a>
-    <a href="/invoices/new">+ New</a>
-    <a href="/prices/">Prices</a>
-    <a href="/profit/weekly">Weekly P&L</a>
-    <a href="/">Dashboard</a>
-  </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/invoices/" class="active">Invoices</a>
+        <a href="/prices/">Prices</a>
+    </nav>
+</header>
 <div class="container">
-{{ content }}
+{{ content | safe }}
 </div>
 </body></html>"""
 
@@ -640,12 +616,16 @@ NEW_HTML = """
     </div>
     <table id="reviewTable">
       <thead><tr>
-        <th>Item</th>
+        <th>Vendor Item</th>
+        <th>Common Name</th>
         <th style="text-align:center;">Qty</th>
         <th>Unit</th>
         <th style="text-align:right;">Unit Price</th>
         <th style="text-align:right;">Extended</th>
-        <th style="text-align:center;">Match</th>
+        <th>Pack</th>
+        <th>Each Size</th>
+        <th>$/Unit</th>
+        <th style="text-align:center;">Status</th>
       </tr></thead>
       <tbody id="reviewBody"></tbody>
     </table>
@@ -763,9 +743,58 @@ function handleFile(input) {
     });
 }
 
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function updateMappedName(idx, val) {
+  extractedItems[idx]._mapped_name = val;
+}
+
+function updateInvPackQty(idx, val) {
+  extractedItems[idx]._pack_qty = parseInt(val) || 1;
+  recalcRowPerUnit(idx);
+}
+
+function updateInvEachSize(idx, val) {
+  extractedItems[idx]._each_size = parseFloat(val) || 0;
+  recalcRowPerUnit(idx);
+}
+
+function updateInvSizeUnit(idx, val) {
+  extractedItems[idx]._size_unit = val;
+  recalcRowPerUnit(idx);
+}
+
+function recalcRowPerUnit(idx) {
+  var item = extractedItems[idx];
+  var price = parseFloat(item.unit_price || item.price || 0);
+  var packQty = item._pack_qty || 1;
+  var eachSize = item._each_size || 0;
+  var sizeUnit = item._size_unit || '';
+  var cell = document.getElementById('inv-perunit-' + idx);
+  if (!cell) return;
+  var countUnits = ['can','piece','ct'];
+  if (countUnits.includes(sizeUnit) && packQty > 0 && price > 0) {
+    cell.textContent = '$' + (price / packQty).toFixed(2) + '/' + sizeUnit;
+  } else if (eachSize > 0 && sizeUnit && price > 0) {
+    var totalSize = packQty * eachSize;
+    cell.textContent = '$' + (price / totalSize).toFixed(2) + '/' + sizeUnit;
+  } else if (packQty > 1 && price > 0) {
+    cell.textContent = '$' + (price / packQty).toFixed(2) + '/each';
+  } else {
+    cell.textContent = '';
+  }
+}
+
 function showExtractedReview(data) {
-  document.getElementById('uploadStatus').innerHTML = '<span style="color:#27ae60;">Extracted ' + (data.items || []).length + ' items</span>';
   extractedItems = data.items || [];
+  var matched = extractedItems.filter(function(i){ return i.master_item_name; }).length;
+  var credits = extractedItems.filter(function(i){ return parseFloat(i.quantity||0) < 0; }).length;
+  var msg = 'Extracted ' + extractedItems.length + ' items';
+  if (matched) msg += ' · ' + matched + ' matched';
+  if (credits) msg += ' · <span style="color:#c0392b;">' + credits + ' credit(s)</span>';
+  document.getElementById('uploadStatus').innerHTML = '<span style="color:#27ae60;">' + msg + '</span>';
 
   if (data.invoice_number) document.getElementById('extractedInvNum').value = data.invoice_number;
   if (data.invoice_date) document.getElementById('extractedDate').value = data.invoice_date;
@@ -775,19 +804,48 @@ function showExtractedReview(data) {
   var body = document.getElementById('reviewBody');
   body.innerHTML = '';
   extractedItems.forEach(function(item, i) {
-    var matchBadge = item.master_item_name
-      ? '<span style="color:#27ae60;font-size:0.8rem;">&#10003; ' + item.master_item_name + '</span>'
-      : '<span style="color:#e67e22;font-size:0.8rem;">New item</span>';
+    var qty = parseFloat(item.quantity || 0);
+    var isCredit = qty < 0;
+    var up = parseFloat(item.unit_price || item.price || 0);
+    var ext = parseFloat(item.extended_price || 0);
+    var rowBg = isCredit ? 'background:#fef2f2;' : '';
+    var qtyColor = isCredit ? 'color:#c0392b;font-weight:700;' : '';
+    var mappedName = item.master_item_name || '';
+    var statusHtml = item.master_item_name
+      ? '<span style="color:#27ae60;font-size:0.75rem;">&#10003; matched</span>'
+      : '<span style="color:#e67e22;font-size:0.75rem;">new item</span>';
+    if (isCredit) statusHtml = '<span style="color:#c0392b;font-size:0.75rem;font-weight:600;">credit</span>';
 
-    body.innerHTML += '<tr>' +
-      '<td>' + (item.item_name || '') + '</td>' +
-      '<td style="text-align:center;font-family:JetBrains Mono,monospace;">' + (item.quantity || '') + '</td>' +
-      '<td>' + (item.unit || '') + '</td>' +
-      '<td style="text-align:right;font-family:JetBrains Mono,monospace;">$' + (parseFloat(item.price || item.unit_price || 0)).toFixed(2) + '</td>' +
-      '<td style="text-align:right;font-family:JetBrains Mono,monospace;font-weight:600;">$' + (parseFloat(item.extended_price || 0)).toFixed(2) + '</td>' +
-      '<td style="text-align:center;">' + matchBadge + '</td>' +
+    var packQty = item.pack_qty || 1;
+    var eachSize = item.each_size || 0;
+    var sizeUnit = (item.size_unit || '').toLowerCase();
+    extractedItems[i]._pack_qty = packQty;
+    extractedItems[i]._each_size = eachSize;
+    extractedItems[i]._size_unit = sizeUnit;
+
+    var iStyle = 'font-size:0.8rem;padding:3px 5px;border:1px solid #d4c9b5;border-radius:5px;';
+    body.innerHTML += '<tr style="' + rowBg + '">' +
+      '<td style="font-size:0.85rem;">' + escHtml(item.item_name || '') + '</td>' +
+      '<td><input type="text" style="width:140px;' + iStyle + '" ' +
+        'value="' + escHtml(mappedName) + '" placeholder="common name..." ' +
+        'oninput="updateMappedName(' + i + ',this.value)"></td>' +
+      '<td style="text-align:center;font-family:\\'JetBrains Mono\\',monospace;' + qtyColor + '">' + qty + '</td>' +
+      '<td style="font-size:0.85rem;">' + escHtml(item.unit || '') + '</td>' +
+      '<td style="text-align:right;font-family:\\'JetBrains Mono\\',monospace;font-size:0.85rem;">$' + up.toFixed(2) + '</td>' +
+      '<td style="text-align:right;font-family:\\'JetBrains Mono\\',monospace;font-weight:600;' + (isCredit?'color:#c0392b;':'') + '">' +
+        (isCredit && ext > 0 ? '-' : '') + '$' + Math.abs(ext).toFixed(2) + '</td>' +
+      '<td><input type="number" step="1" min="1" value="' + packQty + '" style="width:52px;' + iStyle + '" oninput="updateInvPackQty(' + i + ',this.value)"></td>' +
+      '<td style="white-space:nowrap;">' +
+        '<input type="number" step="any" min="0" value="' + (eachSize||'') + '" placeholder="qty" style="width:48px;' + iStyle + '" oninput="updateInvEachSize(' + i + ',this.value)">' +
+        '<input type="text" value="' + escHtml(sizeUnit) + '" placeholder="unit" style="width:44px;' + iStyle + 'margin-left:3px;" oninput="updateInvSizeUnit(' + i + ',this.value)">' +
+      '</td>' +
+      '<td id="inv-perunit-' + i + '" style="font-size:0.8rem;color:#475417;white-space:nowrap;"></td>' +
+      '<td style="text-align:center;">' + statusHtml + '</td>' +
       '</tr>';
   });
+
+  // Compute initial $/Unit for any items that already have pack/each_size
+  extractedItems.forEach(function(_, i) { recalcRowPerUnit(i); });
 
   document.getElementById('reviewCard').style.display = 'block';
 }
@@ -802,16 +860,23 @@ function saveInvoice() {
 
   var vendorNames = %(vendor_names_json)s;
   var lineItems = extractedItems.map(function(item) {
+    // Use manually mapped name if provided, else fall back to master match
+    var commonName = (item._mapped_name !== undefined ? item._mapped_name : item.master_item_name) || '';
     return {
       item_name: item.item_name || '',
+      common_name: commonName,
       master_item_id: item.master_item_id || null,
-      master_item_name: item.master_item_name || '',
+      master_item_name: commonName,
       item_code: item.item_code || '',
       quantity: parseFloat(item.quantity) || 0,
       unit: item.unit || '',
-      unit_price: parseFloat(item.price || item.unit_price) || 0,
+      unit_price: parseFloat(item.unit_price || item.price) || 0,
       extended_price: parseFloat(item.extended_price) || 0,
+      pack_qty: item._pack_qty || 1,
+      each_size: item._each_size || 0,
+      size_unit: item._size_unit || '',
       category: item.category || '',
+      is_credit: parseFloat(item.quantity || 0) < 0,
     };
   });
 
@@ -887,7 +952,7 @@ function saveManualInvoice() {
 
 DETAIL_HTML = """
 <div style="margin-bottom:12px;">
-  <a href="/invoices/" style="color:#4a7c1f;font-size:0.85rem;text-decoration:none;">&larr; All Invoices</a>
+  <a href="/invoices/" style="color:#475417;font-size:0.85rem;text-decoration:none;">&larr; All Invoices</a>
 </div>
 
 <div class="card">

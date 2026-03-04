@@ -27,7 +27,7 @@ import yaml
 warnings.filterwarnings('ignore')
 
 # Add tools/dashboard/ to path so dashboard imports work
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'tools', 'dashboard'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'tools'))
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -67,7 +67,7 @@ from invoices import bp as invoices_bp
 app.register_blueprint(invoices_bp)
 
 # ── Hub Dashboard Blueprint ──
-from tools.dashboard.hub import bp as hub_bp
+from tools.hub import bp as hub_bp
 app.register_blueprint(hub_bp)
 
 # ── Rate limiting ──

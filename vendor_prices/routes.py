@@ -8,10 +8,7 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-import re
-
 from flask import redirect, render_template_string, request, session, url_for
-from werkzeug.utils import secure_filename
 
 from vendor_prices import bp
 from vendor_prices.tools import notion_sync, price_extractor
@@ -104,8 +101,8 @@ def index():
     try:
         from tools.gmail_service.vendor_invoice_poller import poller as vip
         pending_invoices = vip.pending_count
-    except Exception as e:
-        logger.debug("vendor_invoice_poller unavailable: %s", e)
+    except Exception:
+        pass
     return render_template_string(INDEX_HTML, vendors=VENDORS,
                                   pending_invoices=pending_invoices)
 
@@ -146,8 +143,7 @@ def api_upload():
         week = notion_sync.get_current_week()
         save_dir = UPLOAD_DIR / week / vendor_key
         save_dir.mkdir(parents=True, exist_ok=True)
-        safe_name = secure_filename(f.filename) or f"upload_{uuid.uuid4().hex}"
-        file_path = save_dir / safe_name
+        file_path = save_dir / f.filename
         f.save(str(file_path))
 
         extracted = _extract_and_normalize(vendor, f.filename, str(file_path))
@@ -243,24 +239,18 @@ def api_confirm():
     Returns immediately with batch_id for progress polling.
     """
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json()
     batch_id = data.get("batch_id", "")
     approved_items = data.get("items", [])
 
-    if not re.match(r'^[a-zA-Z0-9_-]+$', batch_id):
-        return {"error": "Invalid batch_id"}, 400
     # Load pending batch
     pending_path = PENDING_DIR / f"{batch_id}.json"
     if not pending_path.exists():
         return {"error": "Batch not found or expired"}, 404
 
-    try:
-        pending = json.loads(pending_path.read_text())
-        vendor = pending["vendor"]
-        filenames = pending["filenames"]
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.error("Corrupt pending batch %s: %s", batch_id, e)
-        return {"error": "Batch data is corrupt or incomplete"}, 500
+    pending = json.loads(pending_path.read_text())
+    vendor = pending["vendor"]
+    filenames = pending["filenames"]
     upload_type = data.get("upload_type") or pending.get("upload_type", "Purchase")
     if upload_type not in ("Purchase", "Price Update"):
         upload_type = "Purchase"
@@ -362,23 +352,17 @@ def api_crop_extract():
     Expects JSON with batch_id + crop coordinates relative to original
     image dimensions.
     """
-    data = request.get_json(silent=True) or {}
+    data = request.get_json()
     batch_id = data.get("batch_id", "")
     crop = data.get("crop")  # {x, y, w, h}
 
-    if not re.match(r'^[a-zA-Z0-9_-]+$', batch_id):
-        return {"error": "Invalid batch_id"}, 400
     pending_path = PENDING_DIR / ("%s.json" % batch_id)
     if not pending_path.exists():
         return {"error": "Batch not found"}, 404
 
-    try:
-        pending = json.loads(pending_path.read_text())
-        vendor = pending["vendor"]
-        vendor_key = pending["vendor_key"]
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.error("Corrupt pending batch %s: %s", batch_id, e)
-        return {"error": "Batch data is corrupt or incomplete"}, 500
+    pending = json.loads(pending_path.read_text())
+    vendor = pending["vendor"]
+    vendor_key = pending["vendor_key"]
     file_paths = pending.get("file_paths", [])
 
     if not file_paths:
@@ -474,8 +458,7 @@ def _detect_price_changes(items: list[dict], master_map: dict) -> None:
 
     try:
         entries = notion_sync.get_price_entries(PRICES_DB_ID)
-    except Exception as e:
-        logger.warning("_detect_price_changes: failed to load price entries: %s", e)
+    except Exception:
         return
 
     # Build lookup: master_item_id -> latest price
@@ -649,21 +632,18 @@ def review_page():
 def update_item_api(item_id):
     """Update an item's properties."""
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json()
     kwargs = {}
     for field in ("name", "category", "unit", "unit_size", "preferred_vendor",
                   "active", "notes", "par_level"):
         if field in data:
             kwargs[field] = data[field]
 
-    try:
-        if "aliases" in data:
-            notion_sync.update_item_aliases(item_id, data["aliases"])
-        if kwargs:
-            notion_sync.update_item(item_id, **kwargs)
-    except Exception as e:
-        logger.error("update_item_api failed for %s: %s", item_id, e)
-        return {"error": str(e)}, 500
+    if "aliases" in data:
+        notion_sync.update_item_aliases(item_id, data["aliases"])
+
+    if kwargs:
+        notion_sync.update_item(item_id, **kwargs)
 
     return {"status": "ok"}
 
@@ -716,12 +696,9 @@ def api_item_detail(item_id):
 def api_update_pack(entry_id):
     """Update pack breakdown fields on a price entry."""
 
-    data = request.get_json(silent=True) or {}
-    try:
-        pack_qty = int(data.get("pack_qty", 0))
-        each_size = float(data.get("each_size", 0))
-    except (ValueError, TypeError):
-        return {"error": "pack_qty and each_size must be numbers"}, 400
+    data = request.get_json()
+    pack_qty = int(data.get("pack_qty", 0))
+    each_size = float(data.get("each_size", 0))
     size_unit = str(data.get("size_unit", ""))
 
     try:
@@ -844,11 +821,7 @@ def api_upload_entries(vendor, week):
 def delete_price_entry(entry_id):
     """Delete (archive) a price entry."""
 
-    try:
-        ok = notion_sync.delete_page(entry_id)
-    except Exception as e:
-        logger.error("delete_price_entry failed for %s: %s", entry_id, e)
-        return {"error": str(e)}, 500
+    ok = notion_sync.delete_page(entry_id)
     if ok:
         return {"status": "ok"}
     return {"error": "Failed to delete"}, 500
@@ -864,12 +837,7 @@ def api_pending(batch_id):
     pending_path = PENDING_DIR / f"{batch_id}.json"
     if not pending_path.exists():
         return {"error": "Batch not found or expired"}, 404
-    try:
-        pending = json.loads(pending_path.read_text())
-        _ = pending["batch_id"]  # validate required key present
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.error("Corrupt pending batch %s: %s", batch_id, e)
-        return {"error": "Batch data is corrupt"}, 500
+    pending = json.loads(pending_path.read_text())
 
     result = {
         "batch_id": pending["batch_id"],
@@ -898,17 +866,12 @@ def api_pending_extract(batch_id):
     if not vendor:
         return {"error": f"Unknown vendor: {vendor_key}"}, 400
 
-    try:
-        pending = json.loads(pending_path.read_text())
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.error("Corrupt pending batch %s: %s", batch_id, e)
-        return {"error": "Batch data is corrupt"}, 500
+    pending = json.loads(pending_path.read_text())
     file_path = pending.get("file_path", "")
     if not file_path or not Path(file_path).exists():
         return {"error": "Image file not found — it may have expired"}, 404
 
-    filenames = pending.get("filenames") or []
-    filename = filenames[0] if filenames else "telegram.jpg"
+    filename = pending["filenames"][0] if pending.get("filenames") else "telegram.jpg"
     extracted = _extract_and_normalize(vendor, filename, file_path)
     if extracted.get("error"):
         return {"error": extracted["error"]}, 500
@@ -1036,6 +999,7 @@ def order_check_page():
 # ── HTML Templates ──
 
 STYLE = """
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -1044,17 +1008,14 @@ STYLE = """
         color: #333;
         min-height: 100vh;
     }
-    .nav {
-        background: #475417;
-        color: white;
-        padding: 1rem 2rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .nav a { color: #F5EDDC; text-decoration: none; margin-left: 1.5rem; font-size: 0.9rem; }
-    .nav a:hover { text-decoration: underline; }
-    .nav h1 { font-size: 1.3rem; font-weight: 600; }
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 32px;border-bottom:1px solid rgba(0,0,0,0.08);background:rgba(245,237,220,0.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);position:sticky;top:0;z-index:100;}
+    .topbar-brand{display:flex;align-items:center;gap:10px;text-decoration:none;}
+    .topbar-logo{width:28px;height:28px;border-radius:8px;background:#475417;display:flex;align-items:center;justify-content:center;color:white;font-family:'DM Serif Display',serif;font-size:15px;}
+    .topbar-title{font-family:'DM Serif Display',serif;font-size:18px;font-weight:400;color:#292524;letter-spacing:0.3px;}
+    .topbar-nav{display:flex;gap:4px;}
+    .topbar-nav a{font-size:13px;font-weight:500;color:#a8a29e;text-decoration:none;padding:6px 14px;border-radius:8px;transition:all 0.2s ease;}
+    .topbar-nav a:hover{color:#292524;background:rgba(0,0,0,0.03);}
+    .topbar-nav a.active{color:#475417;background:rgba(71,84,23,0.08);}
     .container { max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
     .card {
         background: white;
@@ -1073,8 +1034,8 @@ STYLE = """
         font-weight: 500;
         transition: all 0.2s;
     }
-    .vendor-tab.active { border-color: #4a7c1f; background: #4a7c1f; color: white; }
-    .vendor-tab:hover { border-color: #4a7c1f; }
+    .vendor-tab.active { border-color: #475417; background: #475417; color: white; }
+    .vendor-tab:hover { border-color: #475417; }
     .drop-zone {
         border: 2px dashed #ccc;
         border-radius: 12px;
@@ -1084,10 +1045,10 @@ STYLE = """
         transition: all 0.2s;
         color: #666;
     }
-    .drop-zone:hover, .drop-zone.dragover { border-color: #4a7c1f; background: #f0f7e6; }
+    .drop-zone:hover, .drop-zone.dragover { border-color: #475417; background: rgba(71,84,23,0.05); }
     .drop-zone input[type="file"] { display: none; }
     .btn {
-        background: #4a7c1f;
+        background: #475417;
         color: white;
         border: none;
         padding: 0.7rem 1.5rem;
@@ -1096,10 +1057,10 @@ STYLE = """
         cursor: pointer;
         font-weight: 500;
     }
-    .btn:hover { background: #3a6216; }
+    .btn:hover { background: #3d6819; }
     .btn:disabled { background: #999; cursor: not-allowed; }
     .results { margin-top: 1.5rem; }
-    .result-item { padding: 1rem; border-left: 4px solid #4a7c1f; margin-bottom: 0.5rem; background: #f9f9f9; border-radius: 0 8px 8px 0; }
+    .result-item { padding: 1rem; border-left: 4px solid #475417; margin-bottom: 0.5rem; background: #f9f9f9; border-radius: 0 8px 8px 0; }
     .result-item.error { border-left-color: #c0392b; }
     .stat { display: inline-block; margin-right: 1.5rem; }
     .stat-num { font-size: 1.5rem; font-weight: 700; color: #475417; }
@@ -1138,7 +1099,7 @@ STYLE = """
         resize: vertical;
         line-height: 1.5;
     }
-    .paste-area:focus { border-color: #4a7c1f; outline: none; }
+    .paste-area:focus { border-color: #475417; outline: none; }
     .mode-content { display: none; }
     .mode-content.active { display: block; }
     .review-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 1rem; }
@@ -1166,7 +1127,7 @@ STYLE = """
         font-size: 0.85rem;
         background: white;
     }
-    .mapping-input:focus, .price-input:focus, .unit-select:focus, .size-input:focus, .size-unit-input:focus, .qty-input:focus { border-color: #4a7c1f; outline: none; }
+    .mapping-input:focus, .price-input:focus, .unit-select:focus, .size-input:focus, .size-unit-input:focus, .qty-input:focus { border-color: #475417; outline: none; }
     .price-input {
         width: 80px;
         border: 1px solid #ddd;
@@ -1231,8 +1192,8 @@ STYLE = """
         background: white;
         transition: all 0.2s;
     }
-    .type-btn.active { border-color: #4a7c1f; background: #4a7c1f; color: white; }
-    .type-btn:hover { border-color: #4a7c1f; }
+    .type-btn.active { border-color: #475417; background: #475417; color: white; }
+    .type-btn:hover { border-color: #475417; }
 </style>
 """
 
@@ -1240,22 +1201,18 @@ INDEX_HTML = f"""<!DOCTYPE html>
 <html>
 <head><title>Livite Vendor Prices</title>{STYLE}</head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending">Spending</a>
-        <a href="/prices/order-check">Order</a>
-        <a href="/prices/invoices" style="position:relative;">Invoices{{%- if pending_invoices > 0 %}}<span style="position:absolute;top:-6px;right:-10px;background:#d9342b;color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;display:flex;align-items:center;justify-content:center;">{{{{ pending_invoices }}}}</span>{{%- endif %}}</a>
-        {{%- if role == 'owner' %}} <a href="/">Sales</a>{{%- endif %}}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 <div class="container">
     {{%- if pending_invoices > 0 %}}
     <div class="card" style="border-left:4px solid #e67e22;margin-bottom:1rem;">
@@ -1320,21 +1277,18 @@ UPLOAD_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending">Spending</a>
-        <a href="/prices/order-check">Order</a>
-        {% if role == 'owner' %}<a href="/">Sales</a>{% endif %}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 <div class="container">
     <div class="card">
         <h2>Upload Price Sheets</h2>
@@ -1377,7 +1331,8 @@ UPLOAD_HTML = """<!DOCTYPE html>
                     <p style="font-size:0.85rem;">PDF, photos, receipts, screenshots, CSV, or text files</p>
                     <input type="file" id="fileInput" name="files" multiple
                            accept=".pdf,.png,.jpg,.jpeg,.heic,.webp,.csv,.txt,.xlsx"
-                           capture="environment">
+                           capture="environment"
+                           onchange="updateFileList()" oninput="updateFileList()">
                 </div>
                 <div id="fileList" style="margin-top:1rem;"></div>
                 <button type="submit" class="btn" style="margin-top:1rem;" id="submitBtn" disabled>
@@ -1526,6 +1481,11 @@ function updateFileList() {
     for (const f of files) {
         html += '<div style="padding:0.3rem 0; color:#555;" id="file-info-' + f.name.replace(/[^a-z0-9]/gi,'_') + '">' +
                 f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)</div>';
+    }
+    if (files.length > 10) {
+        html += '<div style="margin-top:0.5rem;padding:8px 12px;background:#fde8e8;border:1px solid #e57373;border-radius:8px;color:#c0392b;font-size:0.85rem;font-weight:600;">⚠️ ' + files.length + ' files selected — this may take several minutes and use significant API credits. Consider splitting into batches of 5–10.</div>';
+    } else if (files.length > 5) {
+        html += '<div style="margin-top:0.5rem;padding:8px 12px;background:#fff8e1;border:1px solid #f9a825;border-radius:8px;color:#b8860b;font-size:0.85rem;font-weight:600;">⚠️ ' + files.length + ' files — extraction may take 30–60 seconds.</div>';
     }
     fileList.innerHTML = html;
     submitBtn.disabled = false;
@@ -1682,8 +1642,28 @@ async function applyCrop() {
 // Enable/disable paste button
 const pasteText = document.getElementById('pasteText');
 const pasteBtn = document.getElementById('pasteBtn');
+const pasteWarn = document.createElement('div');
+pasteWarn.style.cssText = 'margin-top:0.5rem;padding:8px 12px;border-radius:8px;font-size:0.85rem;font-weight:600;display:none;';
+pasteText.parentNode.insertBefore(pasteWarn, pasteBtn);
+
 pasteText.addEventListener('input', () => {
-    pasteBtn.disabled = pasteText.value.trim().length === 0;
+    const len = pasteText.value.trim().length;
+    pasteBtn.disabled = len === 0;
+    if (len > 50000) {
+        pasteWarn.style.display = 'block';
+        pasteWarn.style.background = '#fde8e8';
+        pasteWarn.style.border = '1px solid #e57373';
+        pasteWarn.style.color = '#c0392b';
+        pasteWarn.textContent = '⚠️ Text is very long (' + Math.round(len/1000) + 'k chars) — items near the end may be missed. Consider splitting into two pastes.';
+    } else if (len > 30000) {
+        pasteWarn.style.display = 'block';
+        pasteWarn.style.background = '#fff8e1';
+        pasteWarn.style.border = '1px solid #f9a825';
+        pasteWarn.style.color = '#b8860b';
+        pasteWarn.textContent = '⚠️ Large paste (' + Math.round(len/1000) + 'k chars) — extraction may take 30–45 seconds.';
+    } else {
+        pasteWarn.style.display = 'none';
+    }
 });
 
 // Show review table
@@ -1795,13 +1775,13 @@ function showReview(data) {
         const packQty = item.pack_qty || 1;
         const eachSize = item.each_size || 0;
         const sizeUnit = (item.size_unit || '').toLowerCase();
-        html += '<td><input type="number" step="1" min="1" value="' + packQty + '" class="qty-input" onchange="updatePackQty(' + idx + ', this)"></td>';
-        html += '<td style="white-space:nowrap;"><input type="number" step="0.1" min="0" value="' + (eachSize || '') + '" class="size-input" placeholder="0" onchange="updateEachSize(' + idx + ', this)">';
-        html += '<input type="text" list="sizeUnitOpts" class="size-unit-input" value="' + sizeUnit + '" placeholder="unit" onchange="updateSizeUnit(' + idx + ', this)"></td>';
+        html += '<td><input type="number" step="1" min="1" value="' + packQty + '" class="qty-input" oninput="updatePackQty(' + idx + ', this)"></td>';
+        html += '<td style="white-space:nowrap;"><input type="number" step="any" min="0" value="' + (eachSize || '') + '" class="size-input" placeholder="qty" oninput="updateEachSize(' + idx + ', this)">';
+        html += '<input type="text" list="sizeUnitOpts" class="size-unit-input" value="' + sizeUnit + '" placeholder="unit" oninput="updateSizeUnit(' + idx + ', this)"></td>';
         const compPrice = item.comparable_price || 0;
         const compUnit = item.comparable_unit || '';
         const compLabel = compPrice > 0 && compPrice !== item.price ? ('$' + compPrice.toFixed(2) + '/' + compUnit) : '';
-        html += '<td style="font-size:0.8rem; color:#4a7c1f; white-space:nowrap;">' + compLabel + '</td>';
+        html += '<td id="perunit-' + idx + '" style="font-size:0.8rem; color:#475417; white-space:nowrap;">' + compLabel + '</td>';
         html += '<td>' + statusBadge + '</td>';
         html += '</tr>';
     });
@@ -1893,8 +1873,10 @@ function recalcPerUnit(idx) {
     const packQty = item.pack_qty || 1;
     const eachSize = item.each_size || 0;
     const sizeUnit = item.size_unit || '';
-    const cell = document.getElementById('row-' + idx).querySelectorAll('td')[8];
-    const countUnits = ['can','each','piece','ct'];
+    const cell = document.getElementById('perunit-' + idx);
+    // 'can','piece','ct' → price per container (eachSize irrelevant)
+    // 'each' is intentionally excluded: if eachSize is set, use it; otherwise fall to packQty branch
+    const countUnits = ['can','piece','ct'];
     if (countUnits.includes(sizeUnit) && packQty > 0 && price > 0) {
         // Count-based: pack of 6 cans → $/can
         cell.textContent = '$' + (price / packQty).toFixed(2) + '/' + sizeUnit;
@@ -2059,24 +2041,68 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
 document.getElementById('pasteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     pasteBtn.disabled = true;
-    pasteBtn.textContent = 'Extracting...';
-    document.getElementById('spinner').classList.add('active');
     document.getElementById('results').innerHTML = '';
 
-    const formData = new FormData();
-    formData.set('vendor', selectedVendor);
-    formData.set('upload_type', uploadType);
-    formData.set('text', pasteText.value);
-    try {
-        const resp = await fetch('/prices/api/paste', { method: 'POST', body: formData });
-        showReview(await resp.json());
-    } catch (err) {
-        document.getElementById('results').innerHTML = '<div class="result-item error">Extraction failed: ' + err.message + '</div>';
+    const CHUNK_SIZE = 40000;
+    const fullText = pasteText.value.trim();
+    const spinner = document.getElementById('spinner');
+
+    // Split into chunks at newline boundaries near CHUNK_SIZE
+    function splitChunks(text, size) {
+        if (text.length <= size) return [text];
+        const chunks = [];
+        let start = 0;
+        while (start < text.length) {
+            let end = start + size;
+            if (end < text.length) {
+                const nl = text.lastIndexOf('\\n', end);
+                if (nl > start) end = nl;
+            }
+            chunks.push(text.slice(start, end).trim());
+            start = end + 1;
+        }
+        return chunks.filter(c => c.length > 0);
     }
 
-    document.getElementById('spinner').classList.remove('active');
+    const chunks = splitChunks(fullText, CHUNK_SIZE);
+    const totalChunks = chunks.length;
+    let allItems = [];
+    let allMasterItems = [];
+    let lastData = null;
+
+    for (let i = 0; i < totalChunks; i++) {
+        spinner.classList.add('active');
+        pasteBtn.textContent = totalChunks > 1
+            ? 'Extracting chunk ' + (i+1) + ' of ' + totalChunks + '...'
+            : 'Extracting...';
+
+        const formData = new FormData();
+        formData.set('vendor', selectedVendor);
+        formData.set('upload_type', uploadType);
+        formData.set('text', chunks[i]);
+        try {
+            const resp = await fetch('/prices/api/paste', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (data.error) {
+                document.getElementById('results').innerHTML = '<div class="result-item error">Chunk ' + (i+1) + ' failed: ' + escapeHtml(data.error) + '</div>';
+                break;
+            }
+            allItems = allItems.concat(data.items || []);
+            allMasterItems = allMasterItems.concat(data.master_items || []);
+            lastData = data;
+        } catch (err) {
+            document.getElementById('results').innerHTML = '<div class="result-item error">Extraction failed on chunk ' + (i+1) + ': ' + err.message + '</div>';
+            break;
+        }
+    }
+
+    spinner.classList.remove('active');
     pasteBtn.disabled = false;
     pasteBtn.textContent = 'Extract Prices';
+
+    if (lastData && allItems.length > 0) {
+        showReview(Object.assign({}, lastData, { items: allItems, master_items: allMasterItems }));
+    }
 });
 
 // Auto-load pending batch from ?batch= query param (Telegram uploads)
@@ -2172,21 +2198,18 @@ COMPARE_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending">Spending</a>
-        <a href="/prices/order-check">Order</a>
-        {% if role == 'owner' %}<a href="/">Sales</a>{% endif %}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 <div class="container">
     <div class="card">
         <h2>Price Comparison</h2>
@@ -2309,21 +2332,18 @@ COMPARE_ALL_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending">Spending</a>
-        <a href="/prices/order-check">Order</a>
-        {% if role == 'owner' %}<a href="/">Sales</a>{% endif %}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 <div class="container">
     <div class="card">
         <div class="print-header">
@@ -2531,7 +2551,7 @@ REVIEW_HTML = """<!DOCTYPE html>
     .pack-field input:focus, .pack-field select:focus { border-color: #475417; outline: none; }
     .pack-operator { font-size: 1.2rem; color: #888; padding-top: 1rem; }
     .pack-total {
-        background: #f0f7e6; padding: 0.5rem 0.8rem; border-radius: 6px;
+        background: rgba(71,84,23,0.05); padding: 0.5rem 0.8rem; border-radius: 6px;
         font-weight: 600; color: #475417; margin-top: 0.2rem; font-size: 0.95rem;
     }
     .price-row {
@@ -2557,20 +2577,18 @@ REVIEW_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review" style="font-weight:700;text-decoration:underline;">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending">Spending</a>
-        {% if role == 'owner' %}<a href="/">Sales</a>{% endif %}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 <div class="container">
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -2975,21 +2993,18 @@ TRENDS_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending">Spending</a>
-        <a href="/prices/order-check">Order</a>
-        {% if role == 'owner' %}<a href="/">Sales</a>{% endif %}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 <div class="container">
     <div class="card">
         <h2>Price Trends</h2>
@@ -3112,7 +3127,7 @@ HISTORY_HTML = """<!DOCTYPE html>
     }
     .upload-table td { padding: 0.5rem 0.8rem; border-bottom: 1px solid #e0e0e0; }
     .upload-table tr:hover { background: #f5f5f5; cursor: pointer; }
-    .upload-table tr.expanded { background: #f0f7e6; }
+    .upload-table tr.expanded { background: rgba(71,84,23,0.05); }
     .status-badge {
         display: inline-block; padding: 0.15rem 0.5rem; border-radius: 10px;
         font-size: 0.75rem; font-weight: 600;
@@ -3149,21 +3164,18 @@ HISTORY_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending">Spending</a>
-        <a href="/prices/order-check">Order</a>
-        {% if role == 'owner' %}<a href="/">Sales</a>{% endif %}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 
 <div class="container">
     <div class="stats-row">
@@ -3391,20 +3403,18 @@ SPENDING_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending" style="font-weight:700;text-decoration:underline;">Spending</a>
-        {%- if role == 'owner' %} <a href="/">Sales</a>{%- endif %}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 <div class="container">
     <div id="loading" class="loading-msg">Loading spending data...</div>
     <div id="content" style="display:none;">
@@ -3609,21 +3619,18 @@ ORDER_CHECK_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending">Spending</a>
-        <a href="/prices/order-check">Order</a>
-        {%- if session.get('role') == 'owner' %} <a href="/">Sales</a>{%- endif %}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 <div class="container">
     <div class="card">
         <h2>Order Check</h2>
@@ -3770,7 +3777,7 @@ def invoices_page():
     except Exception as e:
         return render_template_string(
             f"""<!DOCTYPE html><html><head><title>Invoices</title>{STYLE}</head>
-            <body><div class="nav"><h1>Livite Vendor Prices</h1></div>
+            <body><header class="topbar"><a class="topbar-brand" href="/"><div class="topbar-logo">L</div><span class="topbar-title">Livite</span></a><nav class="topbar-nav"><a href="/">Home</a><a href="/prices/" class="active">Prices</a><a href="/invoices/">Invoices</a><a href="/dashboard">Dashboard</a></nav></header>
             <div class="container"><div class="card">
             <h2>Email Invoices</h2>
             <p style="color:#d9342b;">Module error: {e}</p>
@@ -3778,7 +3785,7 @@ def invoices_page():
 
     pending = vip.get_pending_invoices()
     last_poll = vip.last_poll.strftime("%Y-%m-%d %H:%M:%S") if vip.last_poll else "Never"
-    status_color = "#4a7c1f" if vip.running else "#d9342b"
+    status_color = "#475417" if vip.running else "#d9342b"
     status_text = "Running" if vip.running else "Stopped"
 
     log_html = ""
@@ -3836,8 +3843,8 @@ def api_dismiss_invoice(batch_id):
     try:
         from tools.gmail_service.vendor_invoice_poller import poller as vip
         vip.pending_count = vip._count_pending()
-    except Exception as e:
-        logger.debug("Could not refresh invoice poller count: %s", e)
+    except Exception:
+        pass
     return {"ok": True}
 
 
@@ -3847,8 +3854,8 @@ def invoices_poll_now():
     from tools.gmail_service.vendor_invoice_poller import poller as vip
     try:
         vip.poll_once()
-    except Exception as e:
-        logger.warning("Manual invoice poll failed: %s", e)
+    except Exception:
+        pass
     return redirect(url_for("vendor_prices.invoices_page"))
 
 
@@ -3872,22 +3879,18 @@ INVOICES_HTML = """<!DOCTYPE html>
 <html>
 <head><title>Email Invoices — Livite Vendor Prices</title>""" + STYLE + """</head>
 <body>
-<div class="nav">
-    <h1>Livite Vendor Prices</h1>
-    <div>
-        <a href="/prices/">Prices</a>
-        <a href="/prices/upload">Upload</a>
-        <a href="/prices/compare">Compare</a>
-        <a href="/prices/trends">Trends</a>
-        <a href="/prices/review">Items</a>
-        <a href="/prices/history">History</a>
-        <a href="/prices/spending">Spending</a>
-        <a href="/prices/order-check">Order</a>
-        <a href="/prices/invoices" style="font-weight:700;">Invoices</a>
-        {% if role == 'owner' %}<a href="/">Sales</a>{% endif %}
-        <a href="/logout">Logout</a>
-    </div>
-</div>
+<header class="topbar">
+    <a class="topbar-brand" href="/">
+        <div class="topbar-logo">L</div>
+        <span class="topbar-title">Livite</span>
+    </a>
+    <nav class="topbar-nav">
+        <a href="/">Home</a>
+        <a href="/prices/" class="active">Prices</a>
+        <a href="/invoices/">Invoices</a>
+        <a href="/dashboard">Dashboard</a>
+    </nav>
+</header>
 <div class="container">
     <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">

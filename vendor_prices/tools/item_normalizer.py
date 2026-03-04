@@ -1,10 +1,10 @@
 """Normalize vendor item names against the Items Master list.
 
 Multi-step pipeline:
-1. Alias store match (vendor_item_name previously confirmed by user)
-2. Exact match (Items Master name or Notion Aliases field)
+1. Exact match (vendor item name + vendor already seen)
+2. Alias match (check Items Master Aliases field)
 3. Claude AI fuzzy match (batch, with confidence scores)
-4. Auto-learn: save confirmed mappings back to alias store
+4. Auto-learn aliases from confirmed matches
 """
 from __future__ import annotations
 
@@ -12,8 +12,6 @@ import json
 import logging
 import os
 import re
-import threading
-from pathlib import Path
 
 import anthropic
 
@@ -21,70 +19,10 @@ from vendor_prices.prompts.normalize_items import build_normalize_prompt
 
 logger = logging.getLogger(__name__)
 
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 BATCH_SIZE = 20
 AUTO_MATCH_THRESHOLD = 0.85
 REVIEW_THRESHOLD = 0.50
-
-# ── Alias store: persists vendor_item_name → master_item_id/name across sessions ──
-
-_ALIAS_STORE_PATH = Path(__file__).resolve().parent.parent.parent / ".tmp" / "vendor_aliases.json"
-_alias_store_lock = threading.Lock()
-
-
-def _load_alias_store() -> dict:
-    """Load the persisted alias store from disk. Returns {vendor_item_name_lower: {master_item_id, master_item_name}}."""
-    try:
-        if _ALIAS_STORE_PATH.exists():
-            with open(_ALIAS_STORE_PATH) as f:
-                return json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        logger.warning("Failed to load alias store: %s", e)
-    return {}
-
-
-def _save_alias_store(store: dict) -> None:
-    """Persist the alias store to disk."""
-    try:
-        _ALIAS_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(_ALIAS_STORE_PATH, "w") as f:
-            json.dump(store, f, indent=2)
-    except IOError as e:
-        logger.warning("Failed to save alias store: %s", e)
-
-
-def learn_alias(vendor_item_name: str, master_item_id: str, master_item_name: str) -> None:
-    """Record a confirmed mapping (vendor item name → master item) in the alias store.
-
-    Call this when a user confirms or manually maps an item during review.
-    """
-    with _alias_store_lock:
-        store = _load_alias_store()
-        key = vendor_item_name.strip().lower()
-        store[key] = {
-            "master_item_id": master_item_id,
-            "master_item_name": master_item_name,
-        }
-        _save_alias_store(store)
-        logger.info("Learned alias: %r → %r (%s)", vendor_item_name, master_item_name, master_item_id)
-
-
-def forget_alias(vendor_item_name: str) -> bool:
-    """Remove a learned alias from the store. Returns True if it existed."""
-    with _alias_store_lock:
-        store = _load_alias_store()
-        key = vendor_item_name.strip().lower()
-        if key in store:
-            del store[key]
-            _save_alias_store(store)
-            return True
-    return False
-
-
-def get_all_aliases() -> dict:
-    """Return the full alias store for inspection."""
-    with _alias_store_lock:
-        return _load_alias_store()
 
 
 def _parse_json_response(text: str) -> dict:
@@ -100,14 +38,7 @@ def _parse_json_response(text: str) -> dict:
 
 
 class ItemNormalizer:
-    """Matches vendor items to the master item list.
-
-    Match priority:
-    1. Alias store (user-confirmed mappings from previous sessions)
-    2. Items Master exact name match
-    3. Items Master Notion Aliases field match
-    4. Claude AI fuzzy match
-    """
+    """Matches vendor items to the master item list."""
 
     def __init__(self, master_items: list[dict]):
         """Initialize with master items from Notion.
@@ -118,12 +49,10 @@ class ItemNormalizer:
         self.master_items = master_items
         self._name_to_id: dict[str, str] = {}
         self._alias_to_id: dict[str, str] = {}
-        self._id_to_name: dict[str, str] = {}
 
         for item in master_items:
             name = item["name"].strip().lower()
             self._name_to_id[name] = item["id"]
-            self._id_to_name[item["id"]] = item["name"]
 
             aliases_raw = item.get("aliases", "")
             if aliases_raw:
@@ -134,37 +63,10 @@ class ItemNormalizer:
                 except (json.JSONDecodeError, TypeError):
                     pass
 
-        # Load persisted alias store (user-confirmed mappings)
-        self._learned_aliases = _load_alias_store()
-
-    def _exact_match(self, vendor_item_name: str) -> tuple[str, str] | tuple[None, None]:
-        """Check alias store, then Items Master name/aliases. Returns (master_item_id, master_item_name) or (None, None)."""
+    def _exact_match(self, vendor_item_name: str) -> str | None:
+        """Check for exact name or alias match. Returns master item ID or None."""
         key = vendor_item_name.strip().lower()
-
-        # Priority 1: user-confirmed alias store
-        if key in self._learned_aliases:
-            entry = self._learned_aliases[key]
-            mid = entry.get("master_item_id", "")
-            mname = entry.get("master_item_name", vendor_item_name)
-            # Validate the ID still exists in master
-            if mid and mid in self._id_to_name:
-                return mid, self._id_to_name[mid]
-            # Name may have been renamed — fall through to Notion lookup
-            mid2 = self._name_to_id.get(mname.strip().lower())
-            if mid2:
-                return mid2, self._id_to_name[mid2]
-
-        # Priority 2: Items Master exact name
-        mid = self._name_to_id.get(key)
-        if mid:
-            return mid, self._id_to_name[mid]
-
-        # Priority 3: Notion Aliases field
-        mid = self._alias_to_id.get(key)
-        if mid:
-            return mid, self._id_to_name.get(mid, vendor_item_name)
-
-        return None, None
+        return self._name_to_id.get(key) or self._alias_to_id.get(key)
 
     def _ai_match_batch(self, vendor_items: list[dict]) -> list[dict]:
         """Use Claude to fuzzy-match a batch of items.
@@ -184,8 +86,6 @@ class ItemNormalizer:
             messages=[{"role": "user", "content": user}],
         )
 
-        if not message.content:
-            raise ValueError("Claude returned empty response content")
         result = _parse_json_response(message.content[0].text)
         matches = result.get("matches", [])
 
@@ -228,9 +128,13 @@ class ItemNormalizer:
         for item in extracted_items:
             name = item.get("item_name", "")
 
-            # Steps 1-3: alias store → exact name → Notion alias
-            mid, master_name = self._exact_match(name)
+            # Step 1 & 2: Exact / alias match
+            mid = self._exact_match(name)
             if mid:
+                # Find the master item name
+                master_name = next(
+                    (m["name"] for m in self.master_items if m["id"] == mid), name
+                )
                 results.append({
                     **item,
                     "master_item_id": mid,
@@ -292,8 +196,8 @@ class ItemNormalizer:
         review = sum(1 for r in results if r["status"] == "review")
         new = sum(1 for r in results if r["status"] == "new")
         logger.info(
-            f"Normalization: {matched} matched, {review} review, {new} new "
-            f"(out of {len(results)} items)"
+            "Normalization: %s matched, %s review, %s new (out of %s items)",
+            matched, review, new, len(results)
         )
 
         return results

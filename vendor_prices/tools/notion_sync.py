@@ -100,12 +100,8 @@ def get_all_items(items_db_id: str) -> list[dict]:
                 "notes": _get_rich_text(props, "Notes"),
             })
 
-        prev_cursor = next_cursor
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
-        if has_more and next_cursor == prev_cursor:
-            logger.warning("get_all_items: pagination cursor stalled, breaking")
-            break
 
     return items
 
@@ -146,22 +142,18 @@ def create_item(items_db_id: str, name: str, category: str = "Other",
 
 def update_item_aliases(page_id: str, aliases: list[str]):
     """Update the Aliases field on an Items Master entry."""
-    try:
-        resp = requests.patch(
-            f"{BASE_URL}/pages/{page_id}",
-            headers=HEADERS,
-            json={
-                "properties": {
-                    "Aliases": {"rich_text": [{"text": {"content": json.dumps(aliases)}}]},
-                }
-            },
-            timeout=15,
-        )
-        if resp.status_code != 200:
-            logger.error("Failed to update aliases for %s: %s", page_id, resp.status_code)
-    except Exception as e:
-        logger.error("update_item_aliases request failed for %s: %s", page_id, e)
-        raise
+    resp = requests.patch(
+        f"{BASE_URL}/pages/{page_id}",
+        headers=HEADERS,
+        json={
+            "properties": {
+                "Aliases": {"rich_text": [{"text": {"content": json.dumps(aliases)}}]},
+            }
+        },
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        logger.error("Failed to update aliases for %s: %s", page_id, resp.status_code)
 
 
 # ── Price Entries ──
@@ -225,8 +217,8 @@ def add_price_entry(
         properties["Each Size"] = {"number": each_size}
     if size_unit:
         properties["Size Unit"] = {"rich_text": [{"text": {"content": size_unit}}]}
-    # NOTE: "Upload Type" intentionally omitted — property does not exist in Prices DB schema.
-    # upload_type param kept for API compatibility but is not written to Notion.
+    if upload_type:
+        properties["Upload Type"] = {"select": {"name": upload_type}}
 
     resp = requests.post(
         f"{BASE_URL}/pages",
@@ -280,15 +272,9 @@ def get_price_entries(prices_db_id: str, week: str = "") -> list[dict]:
     next_cursor = None
 
     while has_more:
-        payload: dict = {"page_size": 100}
+        payload = {"page_size": 100}
         if next_cursor:
             payload["start_cursor"] = next_cursor
-        # Push week filter server-side to avoid fetching all entries
-        if week:
-            payload["filter"] = {
-                "property": "Week",
-                "rich_text": {"equals": week},
-            }
 
         resp = requests.post(
             f"{BASE_URL}/data_sources/{ds_id}/query",
@@ -304,6 +290,9 @@ def get_price_entries(prices_db_id: str, week: str = "") -> list[dict]:
         for page in data.get("results", []):
             props = page.get("properties", {})
             entry_week = _get_rich_text(props, "Week")
+
+            if week and entry_week != week:
+                continue
 
             # Get item relation
             item_rel = props.get("Item", {})
@@ -336,12 +325,8 @@ def get_price_entries(prices_db_id: str, week: str = "") -> list[dict]:
                 "size_unit": _get_rich_text(props, "Size Unit"),
             })
 
-        prev_cursor = next_cursor
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
-        if has_more and next_cursor == prev_cursor:
-            logger.warning("get_price_entries: pagination cursor stalled, breaking")
-            break
 
     return entries
 
@@ -382,19 +367,12 @@ def update_item(page_id: str, **kwargs):
                 properties[prop_name] = {"number": float(val) if val else None}
 
     if properties:
-        try:
-            resp = requests.patch(
-                f"{BASE_URL}/pages/{page_id}",
-                headers=HEADERS,
-                json={"properties": properties},
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                logger.warning("update_item failed for %s: %d %s",
-                               page_id, resp.status_code, resp.text[:100])
-        except Exception as e:
-            logger.error("update_item request failed for %s: %s", page_id, e)
-            raise
+        requests.patch(
+            f"{BASE_URL}/pages/{page_id}",
+            headers=HEADERS,
+            json={"properties": properties},
+            timeout=15,
+        )
 
 
 # ── Upload Log ──
@@ -431,7 +409,8 @@ def log_upload(
     }
     if error_details:
         properties["Error Details"] = {"rich_text": [{"text": {"content": error_details[:2000]}}]}
-    # NOTE: "Upload Type" intentionally omitted — may not exist in Uploads DB schema.
+    if upload_type:
+        properties["Upload Type"] = {"select": {"name": upload_type}}
 
     resp = requests.post(
         f"{BASE_URL}/pages",
@@ -466,15 +445,12 @@ def update_upload_log(page_id: str, **kwargs):
                 properties[prop_name] = {"rich_text": [{"text": {"content": str(val)[:2000]}}]}
 
     if properties:
-        resp = requests.patch(
+        requests.patch(
             f"{BASE_URL}/pages/{page_id}",
             headers=HEADERS,
             json={"properties": properties},
             timeout=15,
         )
-        if resp.status_code != 200:
-            logger.warning("update_upload_log failed for %s: %d %s",
-                           page_id, resp.status_code, resp.text[:100])
 
 
 # ── Upload Log queries ──

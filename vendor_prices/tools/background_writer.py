@@ -12,7 +12,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from vendor_prices.tools import notion_sync
-from vendor_prices.tools.item_normalizer import learn_alias
 
 logger = logging.getLogger(__name__)
 
@@ -40,37 +39,6 @@ def get_progress(batch_id: str) -> dict | None:
     return None
 
 
-def _build_duplicate_index(prices_db_id: str, vendor: str, week: str) -> dict[str, list[str]]:
-    """Fetch existing price entries for (vendor, week) and build {master_item_id: [entry_id]}.
-
-    Called ONCE before the thread pool to avoid N redundant Notion queries.
-    """
-    index: dict[str, list[str]] = {}
-    try:
-        entries = notion_sync.get_price_entries(prices_db_id, week=week)
-        for e in entries:
-            if e.get("vendor") == vendor:
-                item_id = e.get("item_relation_id", "")
-                if item_id:
-                    index.setdefault(item_id, []).append(e["id"])
-    except Exception as exc:
-        logger.warning("Failed to build duplicate index: %s", exc)
-    return index
-
-
-def _archive_from_index(duplicate_index: dict[str, list[str]], master_id: str) -> int:
-    """Delete any pre-fetched duplicate entries for master_id. Returns count deleted."""
-    entry_ids = duplicate_index.pop(master_id, [])
-    archived = 0
-    for eid in entry_ids:
-        try:
-            notion_sync.delete_page(eid)
-            archived += 1
-        except Exception as exc:
-            logger.warning("Failed to delete duplicate entry %s: %s", eid, exc)
-    return archived
-
-
 def _write_one_item(
     item: dict,
     idx: int,
@@ -81,7 +49,6 @@ def _write_one_item(
     prices_db_id: str,
     master_items: list[dict],
     category_map: dict,
-    duplicate_index: dict | None = None,
 ) -> dict:
     """Write a single item to Notion (create item if new + write price entry).
 
@@ -102,23 +69,17 @@ def _write_one_item(
         unit = item.get("unit", "case")
         unit_size = item.get("unit_detail", "")
         aliases = [item["item_name"]]
-        master_name = item.get("master_item_name") or item.get("suggested_name") or item["item_name"]
         for attempt in range(MAX_RETRIES):
             try:
                 master_id = notion_sync.create_item(
                     items_db_id,
-                    name=master_name,
+                    name=item.get("master_item_name") or item.get("suggested_name") or item["item_name"],
                     category=category,
                     unit=unit,
                     unit_size=unit_size,
                     aliases=aliases,
                 )
                 result["new"] = True
-                # Persist to local alias store so next upload skips AI entirely
-                try:
-                    learn_alias(item["item_name"], master_id, master_name)
-                except Exception as e:
-                    logger.debug("learn_alias failed for '%s': %s", item["item_name"], e)
                 break
             except Exception as exc:
                 if attempt < MAX_RETRIES - 1:
@@ -128,15 +89,8 @@ def _write_one_item(
                     return result
 
     elif status in ("matched", "review") and master_id:
-        # Add alias to Notion + persist to local alias store
+        # Add alias
         _add_alias_safe(master_id, item["item_name"], master_items)
-        master_name_for_alias = next(
-            (m["name"] for m in master_items if m["id"] == master_id), item.get("master_item_name", "")
-        )
-        try:
-            learn_alias(item["item_name"], master_id, master_name_for_alias)
-        except Exception as e:
-            logger.debug("learn_alias failed for '%s': %s", item["item_name"], e)
         result["matched"] = True
 
     # Write price entry
@@ -148,15 +102,10 @@ def _write_one_item(
 
         for attempt in range(MAX_RETRIES):
             try:
-                # Use pre-fetched duplicate index if available (1 query for whole batch)
-                # else fall back to per-item query
-                if duplicate_index is not None:
-                    _archive_from_index(duplicate_index, master_id)
-                else:
-                    notion_sync.archive_duplicate_entries(
-                        prices_db_id, master_id, vendor,
-                        notion_sync.get_current_week(),
-                    )
+                notion_sync.archive_duplicate_entries(
+                    prices_db_id, master_id, vendor,
+                    notion_sync.get_current_week(),
+                )
                 notion_sync.add_price_entry(
                     prices_db_id,
                     item_page_id=master_id,
@@ -244,13 +193,6 @@ def run_batch_write(
 
     master_items = notion_sync.get_all_items(items_db_id)
 
-    # Pre-fetch this week's existing price entries for deduplication.
-    # This avoids N per-item Notion queries (N → 1 query shared across all workers).
-    current_week = notion_sync.get_current_week()
-    duplicate_index = _build_duplicate_index(prices_db_id, vendor, current_week)
-    logger.info("Batch %s: pre-fetched %d existing entries for %s %s",
-                batch_id, sum(len(v) for v in duplicate_index.values()), vendor, current_week)
-
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {}
         for idx, item in enumerate(active_items):
@@ -258,7 +200,6 @@ def run_batch_write(
                 _write_one_item,
                 item, idx, vendor, upload_type, source_file,
                 items_db_id, prices_db_id, master_items, category_map,
-                duplicate_index,
             )
             futures[future] = idx
 

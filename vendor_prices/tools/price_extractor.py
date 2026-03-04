@@ -69,8 +69,6 @@ def _call_claude(system: str, messages: list, attempt: int = 0) -> str:
             system=system,
             messages=messages,
         )
-        if not message.content:
-            raise ValueError("Claude returned empty response content")
         return message.content[0].text
     except (anthropic.InternalServerError, anthropic.APIConnectionError) as e:
         if attempt < MAX_RETRIES - 1:
