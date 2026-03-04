@@ -148,8 +148,8 @@ def find_team_games(notion, games_db, visiting_team, exclude_game_id=None):
                 try:
                     hp = notion.pages.retrieve(page_id=home_rel[0]['id'])
                     home_school = extract_title(hp['properties'].get('School Name', {}).get('title', []))
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"  Warning: Could not fetch home team for game {gid}: {e}", file=sys.stderr)
             venue = extract_text_from_rich_text(props.get('Venue', {}).get('rich_text', []))
             games.append({
                 'game_id': gid,
@@ -194,7 +194,7 @@ def get_game_details(notion, game_page_id):
                 day = dt.day
                 suffix = 'th' if 11 <= day <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
                 game_data['game_date_formatted'] = '{} {}{}'.format(dt.strftime('%B'), day, suffix)
-            except:
+            except (ValueError, TypeError):
                 game_data['game_date_formatted'] = game_data['game_date']
         else:
             game_data['game_date'] = ''
@@ -492,8 +492,8 @@ def create_draft_for_game(notion, games_db, contacts_db, templates_db, email_que
         if draft_created:
             print(f"  Skipping: Draft already created on {draft_created['start']}", file=sys.stderr)
             return "duplicate"
-    except:
-        pass
+    except Exception as e:
+        print(f"  Warning: Could not check draft status for {game_page_id}: {e}", file=sys.stderr)
 
     # Get game details
     game_data = get_game_details(notion, game_page_id)
@@ -522,8 +522,8 @@ def create_draft_for_game(notion, games_db, contacts_db, templates_db, email_que
             props = game['properties']
             if 'Away Team' in props and props['Away Team'].get('relation'):
                 school_id = props['Away Team']['relation'][0]['id']
-        except:
-            pass
+        except Exception as e:
+            print(f"  Warning: Could not fetch Away Team for {game_page_id}: {e}", file=sys.stderr)
 
         is_duplicate, reason = check_duplicate_outreach(
             notion, contacts_db, email_queue_db,
@@ -661,8 +661,8 @@ Livite Sports Catering"""
                     "Draft Created": {"date": {"start": today}}
                 }
             )
-        except:
-            pass
+        except Exception as e:
+            print(f"  Warning: Could not mark Draft Created for {game_data.get('game_id')}: {e}", file=sys.stderr)
         return draft_id
     else:
         print("  Error: Failed to create draft", file=sys.stderr)

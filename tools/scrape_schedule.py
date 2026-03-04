@@ -207,7 +207,7 @@ def extract_schedule_from_scripts(soup, base_url):
                             try:
                                 dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                                 date_display = dt.strftime('%b %d')
-                            except:
+                            except (ValueError, TypeError):
                                 date_display = date_str
                         else:
                             date_display = date_str
@@ -223,8 +223,9 @@ def extract_schedule_from_scripts(soup, base_url):
                 except (TypeError, KeyError):
                     continue
 
-        except Exception:
-            pass
+        except Exception as e:
+            import sys
+            print(f"  Warning: Failed to parse script tag for games: {e}", file=sys.stderr)
 
     if games:
         return games
@@ -350,7 +351,8 @@ def parse_schedule_table(soup, base_url):
         for row in table.find_all('tr')[1:]:  # Skip header row
             cols = row.find_all(['td', 'th'])
 
-            if len(cols) <= max(filter(None, [date_col, opponent_col])):
+            valid_cols = list(filter(lambda x: x is not None, [date_col, opponent_col]))
+            if not valid_cols or len(cols) <= max(valid_cols):
                 continue
 
             try:

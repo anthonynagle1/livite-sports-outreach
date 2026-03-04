@@ -9,6 +9,7 @@ Usage:
     gunicorn app:app -b 0.0.0.0:$PORT  # Production (Render, Railway, etc.)
 """
 
+import logging
 import os
 import sys
 import json
@@ -18,6 +19,8 @@ import base64
 import hashlib
 from datetime import datetime, timedelta
 from functools import wraps
+
+logger = logging.getLogger(__name__)
 
 import yaml
 
@@ -264,8 +267,8 @@ def _generate_daily_html(date: datetime) -> str:
                     weather_data, date_str, hist_weather, hist_revenue
                 )
                 needs_recache = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Weather metric computation failed for %s: %s", date_str, e)
 
     # 4WRA
     available = _get_available_dates()
@@ -274,8 +277,8 @@ def _generate_daily_html(date: datetime) -> str:
         if metrics.get('revenue') and slot_4wra:
             metrics['revenue']['quarter_hourly_4wra'] = slot_4wra
             metrics['revenue']['quarter_hourly_4wra_weeks'] = weeks_found
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("4WRA computation failed for %s: %s", date_str, e)
 
     # Cache computed metrics (skip today, skip if unchanged from cache)
     if use_cache and metrics and (not from_cache or needs_recache):
@@ -297,7 +300,7 @@ def _generate_daily_html(date: datetime) -> str:
     deltas = compute_all_deltas(current_summary, comparisons)
     comparisons['deltas'] = deltas
 
-    anomalies = detect_anomalies(metrics, comparisons)
+    anomalies = detect_anomalies(metrics, comparisons, date_str=date_str)
 
     try:
         _4wra = metrics.get('revenue', {}).get('quarter_hourly_4wra', {})
@@ -325,11 +328,10 @@ def _generate_daily_html(date: datetime) -> str:
 
 def _generate_range_html(start: datetime, end: datetime) -> str:
     """Generate range dashboard HTML string (no file I/O)."""
-    import traceback as _tb
     try:
         return _generate_range_html_inner(start, end)
     except Exception as e:
-        _tb.print_exc()
+        logger.error("Error generating range dashboard: %s", e, exc_info=True)
         return _error_page(f"Error generating range dashboard: {e}")
 
 
@@ -2311,7 +2313,8 @@ def api_precache():
                                 cache_metrics(ds, metrics)
                                 cached_count += 1
                                 batch += 1
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Precache failed for %s: %s", ds, e)
                         batch += 1  # skip failures, count toward batch limit
                 else:
                     uncached_remaining += 1
@@ -2371,7 +2374,11 @@ def api_precache_aggregate():
             current += timedelta(days=1)
 
     if not daily_metrics:
-        return jsonify({'error': 'No cached data found'}), 500
+        return jsonify({
+            'error': 'No cached data found',
+            'reason': 'Caching may still be in progress — retry in 30s',
+            'retry_after': 30,
+        }), 202
 
     num_days = (end - start).days + 1
     agg = aggregate_metrics(daily_metrics, start_str, end_str, num_days)
@@ -3344,8 +3351,7 @@ def financials():
         )
         return Response(html, content_type='text/html')
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Error loading financial data: %s", e, exc_info=True)
         return _error_page(f"Error loading financial data: {e}")
 
 
@@ -3379,8 +3385,7 @@ def catering():
         )
         return Response(html, content_type='text/html')
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Error loading catering data: %s", e, exc_info=True)
         return _error_page(f"Error loading catering data: {e}")
 
 
@@ -3399,8 +3404,7 @@ def forecast():
         html = build_forecast_page(metrics, logo_b64=logo)
         return Response(html, content_type='text/html')
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Error generating forecast: %s", e, exc_info=True)
         return _error_page(f"Error generating forecast: {e}")
 
 
@@ -3416,8 +3420,7 @@ def today_prediction():
         html = build_today_page(metrics, logo_b64=logo)
         return Response(html, content_type='text/html')
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Error generating today's prediction: %s", e, exc_info=True)
         return _error_page(f"Error generating today's prediction: {e}")
 
 
@@ -3433,8 +3436,7 @@ def week_view():
         html = build_week_page(metrics, logo_b64=logo)
         return Response(html, content_type='text/html')
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Error generating weekly view: %s", e, exc_info=True)
         return _error_page(f"Error generating weekly view: {e}")
 
 
@@ -3529,8 +3531,7 @@ def schedule_data_api():
     try:
         metrics = generate_weekly_schedule(week=week)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("generate_weekly_schedule failed: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
 
     # Attach availability data for client-side explain feature
@@ -3861,8 +3862,7 @@ def schedule_review_data_api():
     try:
         result = compare_scheduled_vs_actual(schedule)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("compare_scheduled_vs_actual failed: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
 
     return jsonify(result)
@@ -4105,8 +4105,7 @@ def recipes_data_api():
     try:
         results = calculate_all_recipes(RECIPE_ITEMS_DB, RECIPE_PRICES_DB)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("calculate_all_recipes failed: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
     return jsonify(results)
 
@@ -4484,8 +4483,8 @@ def _load_chat_context(date_str):
                             metrics = compute_all_metrics(data, d)
                             if not is_today(ds):
                                 cache_metrics(ds, metrics)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Metrics load failed for %s: %s", ds, e)
                 if metrics:
                     all_contexts.append(_format_metrics_context(metrics))
                     days_loaded += 1
@@ -4504,8 +4503,8 @@ def _load_chat_context(date_str):
                     metrics = compute_all_metrics(data, date)
                     if not is_today(date_str):
                         cache_metrics(date_str, metrics)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Metrics load failed for %s: %s", date_str, e)
         if metrics:
             return _format_metrics_context(metrics)
     return ""
@@ -4591,6 +4590,8 @@ def api_chat():
             system=system,
             messages=messages,
         )
+        if not resp.content:
+            raise ValueError("Claude returned empty response content")
         answer = resp.content[0].text
 
         # Estimate cost from token usage
@@ -4897,7 +4898,7 @@ def _load_manual_data(date_str: str) -> dict:
                         f.write(json.dumps(manual))
                     return manual
         except Exception as e:
-            print(f"[WARN] Notion profit load failed for {date_str}: {e}")
+            logger.warning("Notion profit load failed for %s: %s", date_str, e)
 
     return {}
 
@@ -5133,8 +5134,8 @@ def _weekly_pl_page(week_str: str) -> str:
         inv_data = get_week_total(week_str)
         invoice_cogs = inv_data.get("total", 0)
         invoice_count = inv_data.get("invoice_count", 0)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Invoice COGS fetch failed for %s: %s", week_str, e)
 
     rev = agg["revenue"]
     theo_food = agg["food_cost"]
@@ -5345,7 +5346,7 @@ def api_profit_save(date_str):
         datetime.strptime(date_str, "%Y%m%d")
     except ValueError:
         return jsonify({"error": "Invalid date"}), 400
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "No data"}), 400
     _save_manual_data(date_str, data)
@@ -5356,7 +5357,7 @@ def api_profit_save(date_str):
             full_data = _get_profit_data(date_str)
             _sync_to_notion(date_str, full_data)
         except Exception as e:
-            print(f"[WARN] Notion sync failed for {date_str}: {e}")
+            logger.warning("Notion sync failed for %s: %s", date_str, e)
 
     return jsonify({"status": "ok"})
 
@@ -6366,8 +6367,8 @@ def _profit_range_page(start_str: str, end_str: str) -> str:
                     "total_opex": pl["total_opex"][idx] - sum(pl["opex"].get(a, [0.0] * n_months)[idx] for a in _OWNER_COMP_ACCOUNTS if a in pl["opex"]),
                     "net_income": pl["net_income"][idx],
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("P&L detail computation failed: %s", e)
 
     # ── Build P&L summary HTML ──
     d = detail  # shorthand
@@ -6718,8 +6719,8 @@ def _compute_hours_worked(period_start_str):
                             result[emp]["regular"] += reg
                             result[emp]["ot"] += ot
                             result[emp]["total"] += reg + ot
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Payroll hours accumulation failed for day: %s", e)
         d += timedelta(days=1)
     return result
 
@@ -7205,8 +7206,7 @@ def drivers_page():
         from tools.catering.drivers import get_driver_weekly_data
         data = get_driver_weekly_data()
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Error loading driver data: %s", e, exc_info=True)
         return _error_page(f"Error loading driver data: {e}")
 
     weeks = data.get("weeks", [])
@@ -7310,8 +7310,8 @@ def drivers_page():
                 if d.get("error"):
                     parts.append("Error: %s" % d["error"])
                 diag = '<div style="font-size:11px;color:#999;margin-top:8px;">' + " | ".join(parts) + '</div>'
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Driver diag info failed: %s", e)
         empty_msg = '<div style="text-align:center;padding:40px;color:#7a7265;">No driver delivery data found in Notion. Make sure Delivery Method is set to Mustafa or Metrobi on completed orders.%s</div>' % diag
 
     return Response(f"""<!DOCTYPE html>
@@ -7371,8 +7371,7 @@ def trends_page():
         html = build_trends_page(recent_reports=recent)
         return Response(html, content_type='text/html')
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Error loading Trend Scout: %s", e, exc_info=True)
         return _error_page(f"Error loading Trend Scout: {e}")
 
 
@@ -7431,8 +7430,7 @@ def api_trends():
             "posts": all_posts,
         })
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("api_trends failed: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -7580,7 +7578,7 @@ def payroll_page():
     try:
         toast_hours = aggregate_toast_hours(start_str, end_str)
     except Exception as e:
-        logger.warning(f"Payroll: Toast fetch failed: {e}")
+        logger.warning("Payroll: Toast fetch failed: %s", e)
         toast_hours = {}
 
     # Auto-pull tip totals from Toast
@@ -7588,7 +7586,7 @@ def payroll_page():
     try:
         toast_tips = aggregate_toast_tips(start_str, end_str)
     except Exception as e:
-        logger.warning(f"Payroll: Toast tips fetch failed: {e}")
+        logger.warning("Payroll: Toast tips fetch failed: %s", e)
 
     # Use saved overrides if available, otherwise Toast
     employee_hours = saved.get("employee_hours") or toast_hours
@@ -8295,13 +8293,13 @@ def payroll_download():
     try:
         raw = src.get("tip_overrides", "{}")
         tip_overrides = json.loads(raw) if raw else {}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to parse tip_overrides: %s", e)
     try:
         raw = src.get("cash_tips", "{}")
         cash_tips_map = json.loads(raw) if raw else {}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to parse cash_tips: %s", e)
 
     # Parse week end to get start
     from datetime import datetime as dt
@@ -8318,8 +8316,8 @@ def payroll_download():
     try:
         raw = src.get("employee_hours", "{}")
         ui_hours = json.loads(raw) if raw else {}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to parse employee_hours: %s", e)
     saved = load_payroll_state(week_end)
     employee_hours = ui_hours or saved.get("employee_hours") or aggregate_toast_hours(start_str, end_str)
 
@@ -8333,16 +8331,16 @@ def payroll_download():
             if w["start"] == mon_iso:
                 driver_adj = w["total_tip_adjustment"]
                 break
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Driver tip adjustment fetch failed: %s", e)
 
     # ShipDay tip deduction
     shipday_adj = 0.0
     try:
         toast_tips = aggregate_toast_tips(start_str, end_str)
         shipday_adj = toast_tips.get("shipday_tips", 0.0)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("ShipDay tip deduction fetch failed: %s", e)
     net_tip_pool = max(0, tip_pool - driver_adj - shipday_adj + cash_tips_total)
 
     # Tips from net pool
@@ -8531,9 +8529,9 @@ def _start_forkable_poller():
         if GOOGLE_CLIENT_ID and GOOGLE_REFRESH_TOKEN:
             poller.start()
         else:
-            print("  Forkable poller: Gmail credentials not configured, skipping")
+            logger.info("Forkable poller: Gmail credentials not configured, skipping")
     except Exception as e:
-        print("  Forkable poller: Failed to start - %s" % e)
+        logger.warning("Forkable poller: Failed to start - %s", e)
 
 
 _vendor_invoice_started = False
@@ -8551,9 +8549,18 @@ def _start_vendor_invoice_poller():
         if GOOGLE_CLIENT_ID and GOOGLE_REFRESH_TOKEN:
             vip.start()
         else:
-            print("  Vendor invoice poller: Gmail credentials not configured, skipping")
+            logger.info("Vendor invoice poller: Gmail credentials not configured, skipping")
     except Exception as e:
-        print("  Vendor invoice poller: Failed to start - %s" % e)
+        logger.warning("Vendor invoice poller: Failed to start - %s", e)
+
+
+@app.after_request
+def _add_security_headers(response):
+    """Add basic security headers to all responses."""
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    return response
 
 
 @app.before_request
@@ -8652,8 +8659,7 @@ def reviews_page():
         from tools.reviews.html import build_reviews_page
         return Response(build_reviews_page(), content_type='text/html')
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Error loading Review Monitor: %s", e, exc_info=True)
         return _error_page(f"Error loading Review Monitor: {e}")
 
 
@@ -8669,8 +8675,7 @@ def api_reviews_fetch():
         stats = get_review_stats(reviews)
         return jsonify({"reviews": reviews, "stats": stats})
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("fetch_reviews failed: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -8687,8 +8692,7 @@ def api_reviews_draft():
         draft = draft_response(review_text, rating, reviewer_name)
         return jsonify({"draft": draft})
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("draft_response failed: %s", e, exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -8704,39 +8708,62 @@ def api_send_daily_report():
     return jsonify(result), status
 
 
-# ── Scheduler: 8 AM ET daily email ──
+# ── Scheduler: cache warmup + daily email ──
+def _run_cache_warmup():
+    """Warm weather cache for all available dates. Runs at 6am ET daily."""
+    try:
+        from fetch_weather_data import warm_weather_cache
+        cached, total = warm_weather_cache()
+        logger.info("[scheduler] Cache warmup: %d new days cached (%d total)", cached, total)
+    except Exception as e:
+        logger.warning("[scheduler] Cache warmup failed: %s", e)
+
+
 def _start_scheduler():
-    """Start APScheduler for daily email report (production only)."""
+    """Start APScheduler for cache warmup (6am ET) and daily email report (configurable)."""
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
-        from send_daily_email import send_daily_report
-
-        # Load send time from config
-        with open(os.path.join(os.path.dirname(__file__), 'config.yaml')) as f:
-            cfg = yaml.safe_load(f) or {}
-        email_cfg = cfg.get('daily_email', {})
-        if not email_cfg.get('enabled', False):
-            print("  Daily email disabled in config.yaml — scheduler not started")
-            return
-
-        send_time = email_cfg.get('send_time', '08:00')
-        hour, minute = [int(x) for x in send_time.split(':')]
 
         scheduler = BackgroundScheduler()
+
+        # ── Cache warmup at 6am ET — always enabled ──
         scheduler.add_job(
-            send_daily_report,
-            CronTrigger(hour=hour, minute=minute, timezone='US/Eastern'),
-            id='daily_email_report',
-            name='Daily Email Report',
+            _run_cache_warmup,
+            CronTrigger(hour=6, minute=0, timezone='US/Eastern'),
+            id='cache_warmup',
+            name='Daily Cache Warmup',
             replace_existing=True,
         )
+        logger.info("Cache warmup scheduled at 06:00 ET")
+
+        # ── Daily email report ──
+        try:
+            with open(os.path.join(os.path.dirname(__file__), 'config.yaml')) as f:
+                cfg = yaml.safe_load(f) or {}
+            email_cfg = cfg.get('daily_email', {})
+            if email_cfg.get('enabled', False):
+                from send_daily_email import send_daily_report
+                send_time = email_cfg.get('send_time', '08:00')
+                hour, minute = [int(x) for x in send_time.split(':')]
+                scheduler.add_job(
+                    send_daily_report,
+                    CronTrigger(hour=hour, minute=minute, timezone='US/Eastern'),
+                    id='daily_email_report',
+                    name='Daily Email Report',
+                    replace_existing=True,
+                )
+                logger.info("Daily email scheduled at %s ET", send_time)
+            else:
+                logger.info("Daily email disabled in config.yaml")
+        except Exception as e:
+            logger.warning("Daily email scheduler error: %s", e)
+
         scheduler.start()
-        print(f"  Daily email scheduled at {send_time} ET")
     except ImportError:
-        print("  APScheduler not installed — daily email scheduler disabled")
+        logger.info("APScheduler not installed — scheduler disabled")
     except Exception as e:
-        print(f"  Scheduler error: {e}")
+        logger.warning("Scheduler error: %s", e)
 
 
 # Start scheduler in production (Render sets RENDER=true) or if explicitly enabled

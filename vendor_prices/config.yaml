@@ -1,0 +1,53 @@
+vendors:
+  sysco:
+    display_name: "Sysco"
+    color: "#1a5276"
+  baldor:
+    display_name: "Baldor"
+    color: "#27ae60"
+  freshpoint:
+    display_name: "FreshPoint"
+    color: "#e67e22"
+  restaurant_depot:
+    display_name: "Restaurant Depot"
+    color: "#c0392b"
+
+unit_aliases:
+  "cs": "case"
+  "ca": "case"
+  "ea": "each"
+  "#": "lb"
+  "lbs": "lb"
+  "gal": "gallon"
+  "bg": "bag"
+  "bx": "box"
+  "pk": "pack"
+  "dz": "dozen"
+
+categories:
+  - Protein
+  - Produce
+  - Dairy
+  - Dry Goods
+  - Beverages
+  - Paper & Supplies
+  - Cleaning
+  - Equipment
+  - Other
+
+normalization:
+  auto_match_threshold: 0.85
+  review_threshold: 0.50
+  batch_size: 20
+
+email_rules:
+  baldor:
+    display_name: "Baldor"
+    sender: "statements@baldorfood.com"
+    subject_contains: "invoice"
+    attachment_types: ["pdf"]
+  sysco:
+    display_name: "Sysco"
+    sender: "noreply@sysco.com"
+    subject_contains: "invoice"
+    attachment_types: ["pdf"]

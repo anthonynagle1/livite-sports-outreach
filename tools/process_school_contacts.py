@@ -185,7 +185,7 @@ def try_scrape_with_url_variants(opponent_url, sport, gender, opponent_name, cac
             # Delete the empty cache file so we don't reuse it
             try:
                 Path(cache_file).unlink(missing_ok=True)
-            except:
+            except OSError:
                 pass
             continue
 

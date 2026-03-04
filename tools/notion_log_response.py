@@ -96,8 +96,8 @@ def list_sent_emails(notion, email_queue_db, limit=20):
                     contact_id = props['Contact']['relation'][0]['id']
                     contact = notion.pages.retrieve(page_id=contact_id)
                     contact_name = extract_title(contact['properties'].get('Name', {}).get('title', []))
-                except:
-                    pass
+                except Exception as e:
+                    print(f"  Warning: Could not fetch contact name for email {email.get('id', '?')}: {e}", file=sys.stderr)
 
             print(f"{i}. [{email_id}] {contact_name}")
             print(f"   Subject: {subject}...")
@@ -149,7 +149,7 @@ def find_email_by_school(notion, email_queue_db, school_name):
 
                         if school_lower in school_name_db.lower():
                             return email
-                except:
+                except Exception:
                     continue
 
         return None

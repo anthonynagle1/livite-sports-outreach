@@ -289,8 +289,8 @@ def get_game_details(notion, game_page):
             game_data['home_school'] = extract_title(
                 home_page['properties'].get('School Name', {}).get('title', [])
             )
-        except:
-            pass
+        except Exception as e:
+            print(f"  Warning: Could not fetch Home Team for game {game_data.get('id', '?')}: {e}", file=sys.stderr)
 
     if 'Away Team' in props and props['Away Team'].get('relation'):
         away_id = props['Away Team']['relation'][0]['id']
@@ -299,8 +299,8 @@ def get_game_details(notion, game_page):
             game_data['away_school'] = extract_title(
                 away_page['properties'].get('School Name', {}).get('title', [])
             )
-        except:
-            pass
+        except Exception as e:
+            print(f"  Warning: Could not fetch Away Team for game {game_data.get('id', '?')}: {e}", file=sys.stderr)
 
     return game_data
 

@@ -81,7 +81,7 @@ def load_all_cached_contacts(cache_dir='.tmp/cache/contacts'):
                 if data.get('staff_found', 0) > 0:
                     all_contacts[f.stem] = data
         except Exception as e:
-            pass
+            print(f"  Warning: Failed to load contact cache {f.name}: {e}", file=sys.stderr)
 
     return all_contacts
 

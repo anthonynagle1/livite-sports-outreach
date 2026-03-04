@@ -545,7 +545,7 @@ def update_master_aggregate_sheet(service, spreadsheet_id, sheet_names, sheet_id
             clean = re.sub(r'\s*\(.*?\)', '', date_str).strip()
             current_year = datetime.now().year
             return datetime.strptime(f"{clean} {current_year}", "%b %d %Y")
-        except:
+        except (ValueError, AttributeError):
             return datetime.min
 
     all_games.sort(key=lambda x: parse_date_for_sort(x.get('date', '')))

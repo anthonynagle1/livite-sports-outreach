@@ -234,7 +234,7 @@ def calculate_lead_score(game, schools_with_orders, declined_schools, responded_
                 game_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                 if game_date.tzinfo:
                     game_date = game_date.replace(tzinfo=None)
-            except:
+            except (ValueError, TypeError):
                 pass
 
     if game_date:
@@ -320,7 +320,7 @@ def update_game_lead_score(notion, game_id, score, breakdown, dry_run=False):
             properties["Score Breakdown"] = {
                 "rich_text": [{"text": {"content": breakdown[:2000]}}]
             }
-        except:
+        except (TypeError, AttributeError):
             pass
 
         notion.pages.update(

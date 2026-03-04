@@ -286,7 +286,9 @@ def extract_staff_from_presto_cards(soup, sport_name):
                 'bio_url': bio_url,
             })
 
-        except Exception:
+        except Exception as e:
+            import sys
+            print(f"  Warning: Skipped PrestoSports staff card: {e}", file=sys.stderr)
             continue
 
     return staff_members
@@ -326,7 +328,7 @@ def scrape_roster_embedded_staff(team_url, sport_name, school_name):
             try:
                 # Use networkidle to wait for JS rendering (like schedule scraper)
                 page.goto(roster_url, wait_until='networkidle', timeout=60000)
-            except:
+            except Exception:
                 # Fallback if networkidle times out
                 page.goto(roster_url, wait_until='domcontentloaded', timeout=30000)
                 page.wait_for_timeout(5000)  # Extra time for JS

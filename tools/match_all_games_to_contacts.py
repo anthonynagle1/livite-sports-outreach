@@ -103,7 +103,7 @@ def load_opponent_contacts(opponent_school, sport, gender, cache_dir):
         with open(cache_file, 'r') as f:
             data = json.load(f)
         return data.get('staff', [])
-    except:
+    except (FileNotFoundError, json.JSONDecodeError, ValueError):
         return []
 
 

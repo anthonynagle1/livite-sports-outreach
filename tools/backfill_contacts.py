@@ -92,7 +92,7 @@ def get_school_name(notion, school_id):
             t.get('plain_text', '')
             for t in page['properties'].get('School Name', {}).get('title', [])
         )
-    except:
+    except Exception:
         return ''
 
 
@@ -139,7 +139,7 @@ def find_existing_contact(notion, contacts_db, school_id, sport):
             if email:
                 return contact['id']
         return None
-    except:
+    except Exception:
         return None
 
 
@@ -358,8 +358,8 @@ def create_notion_contact(notion, contacts_db, school_id, staff_person, sport):
         )
         if resp['results']:
             return resp['results'][0]['id']
-    except:
-        pass
+    except Exception as e:
+        print(f"  Warning: Could not check existing contact for {email}: {e}", file=sys.stderr)
 
     properties = {
         'Name': {'title': [{'text': {'content': name}}]},

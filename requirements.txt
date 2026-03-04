@@ -1,30 +1,49 @@
-# NCAA Athletics Contact Automation - Python Dependencies
+# Livite Main Agent — Python Dependencies
 
-# Web scraping and browser automation
+# ── Web Framework (Dashboard) ──
+flask==3.1.0
+gunicorn==23.0.0
+Flask-Limiter==3.8.0
+flask-login==0.6.3
+
+# ── Web scraping & browser automation ──
 playwright==1.47.0
 beautifulsoup4==4.12.3
 lxml==5.1.0
+requests==2.32.3
 
-# Google Sheets integration
+# ── Google integrations ──
 google-api-python-client==2.108.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.0
 
-# Notion integration
+# ── Notion integration ──
 notion-client==2.2.1
 
-# Email sending
-sendgrid==6.11.0
-
-# Data processing
+# ── Data processing ──
 pandas==2.1.4
 python-dateutil==2.8.2
+numpy>=1.24.0
+openpyxl==3.1.5
+pdfplumber>=0.11.0
 
-# Environment and configuration
-python-dotenv==1.0.0
+# ── AI ──
+anthropic>=0.78.0
 
-# HTTP requests (backup)
-requests==2.31.0
+# ── Email ──
+sendgrid==6.11.0
 
-# Utilities
-tqdm==4.66.1  # Progress bars
+# ── Cloud storage ──
+azure-storage-blob==12.28.0
+
+# ── Scheduling & utilities ──
+APScheduler>=3.10.0
+pytz>=2024.1
+pyyaml==6.0.2
+qrcode[pil]>=7.4.2
+Pillow>=10.0.0
+tqdm==4.66.1
+apify-client>=1.8.0
+
+# ── Environment ──
+python-dotenv==1.1.0

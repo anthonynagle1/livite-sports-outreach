@@ -46,7 +46,7 @@ def main():
                 'contact_phone': match.get('contact_phone', ''),
                 'match_quality': match.get('match_quality', ''),
             }
-    except:
+    except Exception:
         pass
 
     # Merge contact data into games

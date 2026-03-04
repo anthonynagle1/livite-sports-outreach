@@ -90,7 +90,7 @@ def format_date(date_str):
     try:
         dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
         return dt.strftime('%b %d')
-    except:
+    except (ValueError, AttributeError):
         return date_str
 
 
@@ -243,8 +243,8 @@ def get_weekly_stats(notion, email_queue_db, games_db, start_date, end_date):
                 }
             )
             stats['responses'] = len(response['results'])
-        except:
-            pass
+        except Exception as e:
+            print(f"  Warning: Could not fetch response stats: {e}", file=sys.stderr)
 
         # Bookings this week
         response = notion.databases.query(
@@ -465,7 +465,7 @@ def send_telegram(message, bot_token, chat_id):
             "text": message,
             "parse_mode": "HTML"
         }
-        response = requests.post(url, data=data)
+        response = requests.post(url, data=data, timeout=10)
         if response.status_code == 200:
             print("Telegram message sent successfully", file=sys.stderr)
             return True

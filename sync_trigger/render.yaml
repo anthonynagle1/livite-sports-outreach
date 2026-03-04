@@ -34,5 +34,9 @@ services:
         sync: false
       - key: GOOGLE_CREDENTIALS_JSON
         sync: false
+      - key: HUB_SALES_URL
+        sync: false
+      - key: HUB_EMAIL_URL
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.9

@@ -146,8 +146,8 @@ def get_email_details(notion, email_page):
             if not details['to_email']:
                 details['to_email'] = contact_props.get('Email', {}).get('email', '')
             details['contact_name'] = extract_title(contact_props.get('Name', {}).get('title', []))
-        except:
-            pass
+        except Exception as e:
+            print(f"  Warning: Could not fetch contact details for {details['contact_id']}: {e}", file=sys.stderr)
 
     # Get game ID
     if 'Game' in props and props['Game'].get('relation'):
