@@ -513,6 +513,8 @@ canvas{{border:2px solid #e2d9c8;border-radius:8px;display:block;background:#faf
 <button class="game-tab active" onclick="switchGame('tetris')">Tetris</button>
 <button class="game-tab" onclick="switchGame('flappy')">Flappy Smoothie</button>
 <button class="game-tab" onclick="switchGame('launch')">Salad Launch</button>
+<button class="game-tab" onclick="switchGame('roulette')">Roulette</button>
+<button class="game-tab" onclick="switchGame('blackjack')">Blackjack</button>
 </div>
 <div id="game-tetris" class="game-panel">
 <div class="game-wrap">
@@ -551,6 +553,28 @@ Mobile: Tap to flap
 <canvas id="launchCanvas" width="520" height="280" style="cursor:pointer;border:2px solid #e2d9c8;border-radius:8px;max-width:100%;"></canvas>
 </div>
 <div class="controls" style="margin-top:6px;">Drag from slingshot to aim and launch!</div>
+</div>
+<div id="game-roulette" class="game-panel" style="display:none;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;padding:0 4px;">
+<span style="font-size:12px;color:#475417;font-weight:600;">Balance: $<span id="roulBalance">1000</span></span>
+<span style="font-size:12px;color:#7a7a6f;">Bet: $<span id="roulBet">0</span></span>
+<span style="font-size:11px;color:#7a7a6f;"><span id="roulResult">—</span></span>
+</div>
+<div style="display:flex;justify-content:center;">
+<canvas id="rouletteCanvas" width="520" height="365" style="cursor:pointer;border:2px solid #e2d9c8;border-radius:8px;max-width:100%;"></canvas>
+</div>
+<div class="controls" style="margin-top:4px;">Click numbers/bets to place chips · Tap chip to select · Spin to go! · Yellow/Blue birds: tap in-flight for power</div>
+</div>
+<div id="game-blackjack" class="game-panel" style="display:none;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;padding:0 4px;">
+<span style="font-size:12px;color:#475417;font-weight:600;">Balance: $<span id="bjBalance">1000</span></span>
+<span style="font-size:12px;color:#7a7a6f;">Bet: $<span id="bjBet">0</span></span>
+<span style="font-size:11px;color:#e67e22;font-weight:600;"><span id="bjMsg"></span></span>
+</div>
+<div style="display:flex;justify-content:center;">
+<canvas id="blackjackCanvas" width="520" height="340" style="cursor:pointer;border:2px solid #e2d9c8;border-radius:8px;max-width:100%;"></canvas>
+</div>
+<div class="controls" style="margin-top:4px;">Select chip amount, click to bet · Deal · Hit or Stand to play</div>
 </div>
 </div>
 
@@ -1564,6 +1588,688 @@ function switchGame(id){{
   document.getElementById('launchBest').textContent=best;
   resetGame();
   tick();
+}})();
+
+/* ── Roulette ── */
+(function(){{
+  var cv=document.getElementById('rouletteCanvas');
+  if(!cv)return;
+  var ctx=cv.getContext('2d');
+  var W=cv.width,H=cv.height;
+
+  // European wheel order (0 + 36 numbers)
+  var WHEEL=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+  var N=WHEEL.length; // 37
+  var RED_SET={{1:1,3:1,5:1,7:1,9:1,12:1,14:1,16:1,18:1,19:1,21:1,23:1,25:1,27:1,30:1,32:1,34:1,36:1}};
+  function pocketColor(n){{
+    if(n===0)return'#1a7a2a';
+    return RED_SET[n]?'#c0392b':'#1a1a1a';
+  }}
+
+  // Wheel geometry
+  var WCX=150,WCY=170;
+  var WOUT=128,WNUM_IN=98,WSPOKE=58,WHUB=30;
+  var TRACK_R=120; // ball orbit radius
+  var POCKET_R=100; // radius where ball settles
+
+  // Betting grid (right side)
+  var GX=302,GY=8;
+  var CW=17,CH=20;
+  // 0 spans 3 rows on left of grid; numbers 1-36 in 3 rows × 12 cols
+  function numCell(n){{
+    if(n===0)return{{x:GX,y:GY,w:CW,h:CH*3,cx:GX+CW/2,cy:GY+CH*1.5}};
+    var col=Math.ceil(n/3)-1; // 0..11
+    var row=2-((n-1)%3);      // 0=bottom row(1,4..),2=top(3,6..)
+    return{{x:GX+CW+col*CW,y:GY+row*CH,w:CW,h:CH,cx:GX+CW+col*CW+CW/2,cy:GY+row*CH+CH/2}};
+  }}
+  // Outside bets
+  var OB=[
+    {{k:'1st12',l:'1st 12',x:GX+CW,       y:GY+CH*3,w:CW*4,h:CH-1}},
+    {{k:'2nd12',l:'2nd 12',x:GX+CW+CW*4,  y:GY+CH*3,w:CW*4,h:CH-1}},
+    {{k:'3rd12',l:'3rd 12',x:GX+CW+CW*8,  y:GY+CH*3,w:CW*4,h:CH-1}},
+    {{k:'low',  l:'1-18',  x:GX+CW,       y:GY+CH*4,w:CW*2,h:CH-1}},
+    {{k:'even', l:'Even',  x:GX+CW+CW*2,  y:GY+CH*4,w:CW*2,h:CH-1}},
+    {{k:'red',  l:'●',     x:GX+CW+CW*4,  y:GY+CH*4,w:CW*2,h:CH-1,fill:'#c0392b'}},
+    {{k:'black',l:'●',     x:GX+CW+CW*6,  y:GY+CH*4,w:CW*2,h:CH-1,fill:'#222'}},
+    {{k:'odd',  l:'Odd',   x:GX+CW+CW*8,  y:GY+CH*4,w:CW*2,h:CH-1}},
+    {{k:'high', l:'19-36', x:GX+CW+CW*10, y:GY+CH*4,w:CW*2,h:CH-1}},
+  ];
+
+  // Chips
+  var CHIPS=[25,50,100,250];
+  var CHIP_COL=['#1a7a2a','#2255bb','#333','#7b2fb5'];
+  var selChip=0; // index
+  var CHIP_BTN_Y=H-68;
+
+  // State
+  var balance=parseInt(localStorage.getItem('roulBalance')||'1000',10);
+  var bets={{}};  // key -> amount
+  var totalBet=0;
+  var state='betting'; // betting | spinning | result
+  var wheelRot=0,wheelSpeed=0;
+  var ballAngle=0,ballR=TRACK_R,ballSpeed=0;
+  var winNumber=-1,winPocketIdx=-1;
+  var spinFrame=0,SPIN_FRAMES=260;
+  var bounceOff=0; // extra radial wobble during settle
+  var resultMsg='',resultColor='';
+
+  function updateUI(){{
+    document.getElementById('roulBalance').textContent=balance;
+    document.getElementById('roulBet').textContent=totalBet;
+  }}
+
+  function placeBet(key){{
+    if(state!=='betting')return;
+    var amt=CHIPS[selChip];
+    if(amt>balance-totalBet)return; // not enough funds
+    bets[key]=(bets[key]||0)+amt;
+    totalBet+=amt;
+    updateUI();
+  }}
+
+  function clearBets(){{
+    if(state!=='betting')return;
+    balance+=totalBet;
+    bets={{}};totalBet=0;
+    updateUI();
+  }}
+
+  function spin(){{
+    if(state!=='betting'||totalBet===0)return;
+    balance-=0; // already deducted from "available" display; actual deduction already happened via totalBet
+    state='spinning';
+    spinFrame=0;
+    // Pick winning number
+    winNumber=WHEEL[Math.floor(Math.random()*N)];
+    winPocketIdx=WHEEL.indexOf(winNumber);
+    // Ball starts counter to wheel
+    wheelSpeed=0.028+Math.random()*0.015;
+    ballSpeed=-(0.065+Math.random()*0.02);
+    ballAngle=Math.random()*Math.PI*2;
+    ballR=TRACK_R;
+    bounceOff=0;
+    resultMsg='';
+  }}
+
+  function finishSpin(){{
+    // Settle ball into winning pocket
+    var targetAngle=wheelRot+(winPocketIdx/N)*Math.PI*2+(Math.PI*2/(N*2));
+    ballAngle=targetAngle%(Math.PI*2);
+    ballR=POCKET_R+4;
+    state='result';
+    // Calculate winnings
+    var payout=0;
+    var isRed=RED_SET[winNumber];
+    var isBlack=winNumber>0&&!isRed;
+    Object.keys(bets).forEach(function(k){{
+      var b=bets[k];
+      if(k==='n'+winNumber){{payout+=b*36;}} // straight up 35:1 + return bet
+      else if(k==='red'&&isRed){{payout+=b*2;}}
+      else if(k==='black'&&isBlack){{payout+=b*2;}}
+      else if(k==='even'&&winNumber>0&&winNumber%2===0){{payout+=b*2;}}
+      else if(k==='odd'&&winNumber%2===1){{payout+=b*2;}}
+      else if(k==='low'&&winNumber>=1&&winNumber<=18){{payout+=b*2;}}
+      else if(k==='high'&&winNumber>=19&&winNumber<=36){{payout+=b*2;}}
+      else if(k==='1st12'&&winNumber>=1&&winNumber<=12){{payout+=b*3;}}
+      else if(k==='2nd12'&&winNumber>=13&&winNumber<=24){{payout+=b*3;}}
+      else if(k==='3rd12'&&winNumber>=25&&winNumber<=36){{payout+=b*3;}}
+    }});
+    balance+=payout;
+    if(payout>totalBet){{resultMsg='WIN +$'+(payout-totalBet);resultColor='#1a7a2a';}}
+    else if(payout>0){{resultMsg='WIN +$'+(payout-totalBet);resultColor='#1a7a2a';}}
+    else{{resultMsg='LOSE -$'+totalBet;resultColor='#c0392b';}}
+    totalBet=0;bets={{}};
+    localStorage.setItem('roulBalance',balance);
+    if(balance<=0){{balance=1000;}}
+    document.getElementById('roulResult').textContent=resultMsg;
+    document.getElementById('roulResult').style.color=resultColor;
+    updateUI();
+  }}
+
+  // ── Draw helpers ─────────────────────────────────────────────────────
+  function drawWheel(){{
+    var sliceAngle=Math.PI*2/N;
+    for(var i=0;i<N;i++){{
+      var a0=wheelRot+i*sliceAngle-Math.PI/2;
+      var a1=a0+sliceAngle;
+      var num=WHEEL[i];
+      // Pocket fill
+      ctx.fillStyle=pocketColor(num);
+      ctx.beginPath();ctx.moveTo(WCX,WCY);
+      ctx.arc(WCX,WCY,WOUT,a0,a1);ctx.closePath();ctx.fill();
+      // Inner separator line
+      ctx.strokeStyle='#f5f0e8';ctx.lineWidth=0.5;
+      ctx.beginPath();ctx.moveTo(WCX,WCY);
+      ctx.arc(WCX,WCY,WOUT,a0,a1);ctx.closePath();ctx.stroke();
+      // Number background band (outer ring)
+      ctx.fillStyle='rgba(0,0,0,0.25)';
+      ctx.beginPath();ctx.arc(WCX,WCY,WOUT,a0,a1);
+      ctx.arc(WCX,WCY,WNUM_IN,a1,a0,true);ctx.closePath();ctx.fill();
+      // Number text
+      var midA=a0+sliceAngle/2;
+      var tr=WNUM_IN+(WOUT-WNUM_IN)*0.5;
+      var tx=WCX+Math.cos(midA)*tr,ty=WCY+Math.sin(midA)*tr;
+      ctx.save();ctx.translate(tx,ty);ctx.rotate(midA+Math.PI/2);
+      ctx.fillStyle='#fff';ctx.font='bold '+(num>9?6:7)+'px DM Sans,sans-serif';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(num,0,0);ctx.restore();
+    }}
+    // Spoke dividers
+    ctx.strokeStyle='#c8b87a';ctx.lineWidth=1.5;
+    for(var i=0;i<N;i++){{
+      var a=wheelRot+i*(Math.PI*2/N)-Math.PI/2;
+      ctx.beginPath();ctx.moveTo(WCX+Math.cos(a)*WSPOKE,WCY+Math.sin(a)*WSPOKE);
+      ctx.lineTo(WCX+Math.cos(a)*WNUM_IN,WCY+Math.sin(a)*WNUM_IN);ctx.stroke();
+    }}
+    // Center hub
+    var hubGrad=ctx.createRadialGradient(WCX,WCY,2,WCX,WCY,WSPOKE);
+    hubGrad.addColorStop(0,'#d4a830');hubGrad.addColorStop(1,'#8b6010');
+    ctx.fillStyle=hubGrad;ctx.beginPath();ctx.arc(WCX,WCY,WSPOKE,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#c8a820';ctx.beginPath();ctx.arc(WCX,WCY,WHUB,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#a08010';ctx.lineWidth=2;ctx.beginPath();ctx.arc(WCX,WCY,WHUB,0,Math.PI*2);ctx.stroke();
+    // Outer rim ring
+    ctx.strokeStyle='#8b6010';ctx.lineWidth=5;
+    ctx.beginPath();ctx.arc(WCX,WCY,WOUT+2,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='#c8a820';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(WCX,WCY,WOUT+5,0,Math.PI*2);ctx.stroke();
+    // Ball track ring
+    ctx.strokeStyle='rgba(200,180,120,0.4)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(WCX,WCY,TRACK_R,0,Math.PI*2);ctx.stroke();
+  }}
+
+  function drawBall(){{
+    var bx=WCX+Math.cos(ballAngle)*(ballR+bounceOff);
+    var by=WCY+Math.sin(ballAngle)*(ballR+bounceOff);
+    // Shadow
+    ctx.fillStyle='rgba(0,0,0,0.25)';ctx.beginPath();
+    ctx.arc(bx+1,by+2,5,0,Math.PI*2);ctx.fill();
+    // Ball
+    var bGrad=ctx.createRadialGradient(bx-2,by-2,1,bx,by,5);
+    bGrad.addColorStop(0,'#fff');bGrad.addColorStop(1,'#d0d0d0');
+    ctx.fillStyle=bGrad;ctx.beginPath();ctx.arc(bx,by,5,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#aaa';ctx.lineWidth=0.5;ctx.stroke();
+  }}
+
+  function drawBettingGrid(){{
+    // Background panel
+    ctx.fillStyle='#1a5c1a';ctx.fillRect(GX-2,GY-2,CW*13+4,CH*5+2);
+    // 0 cell
+    var z=numCell(0);
+    ctx.fillStyle='#1a7a2a';ctx.fillRect(z.x,z.y,z.w,z.h);
+    ctx.strokeStyle='#fff';ctx.lineWidth=0.5;ctx.strokeRect(z.x,z.y,z.w,z.h);
+    if(bets['n0']){{
+      ctx.fillStyle='rgba(255,215,0,0.35)';ctx.fillRect(z.x,z.y,z.w,z.h);
+    }}
+    ctx.fillStyle='#fff';ctx.font='bold 7px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('0',z.cx,z.cy);
+    // Numbers 1-36
+    for(var n=1;n<=36;n++){{
+      var c=numCell(n);
+      ctx.fillStyle=RED_SET[n]?'#c0392b':'#1a1a1a';
+      ctx.fillRect(c.x,c.y,c.w,c.h);
+      ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=0.5;ctx.strokeRect(c.x,c.y,c.w,c.h);
+      if(bets['n'+n]){{
+        ctx.fillStyle='rgba(255,215,0,0.35)';ctx.fillRect(c.x,c.y,c.w,c.h);
+      }}
+      ctx.fillStyle='#fff';ctx.font='bold '+(n>9?6:7)+'px DM Sans,sans-serif';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(n,c.cx,c.cy);
+    }}
+    // Outside bets
+    OB.forEach(function(o){{
+      ctx.fillStyle=o.fill||(bets[o.k]?'#2d7a2d':'#2a5a2a');
+      ctx.fillRect(o.x,o.y,o.w,o.h);
+      if(bets[o.k]){{ctx.fillStyle='rgba(255,215,0,0.35)';ctx.fillRect(o.x,o.y,o.w,o.h);}}
+      ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=0.5;ctx.strokeRect(o.x,o.y,o.w,o.h);
+      ctx.fillStyle='#fff';ctx.font='bold 6px DM Sans,sans-serif';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(o.l,o.x+o.w/2,o.y+o.h/2);
+    }});
+    // Bet amount chips on cells
+    Object.keys(bets).forEach(function(k){{
+      var amt=bets[k];if(!amt)return;
+      var cx,cy;
+      if(k.startsWith('n')){{
+        var cell=numCell(parseInt(k.slice(1)));
+        cx=cell.cx;cy=cell.cy-6;
+      }} else {{
+        var ob=OB.filter(function(o){{return o.k===k;}})[0];
+        if(!ob)return;
+        cx=ob.x+ob.w/2;cy=ob.y+ob.h/2;
+      }}
+      ctx.fillStyle='#ffd700';ctx.beginPath();ctx.arc(cx,cy,5,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#333';ctx.font='bold 5px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(amt>=1000?'1k':amt,cx,cy);
+    }});
+  }}
+
+  function drawChips(){{
+    var startX=GX,btnW=48,btnH=22,gap=4;
+    for(var i=0;i<CHIPS.length;i++){{
+      var bx=startX+i*(btnW+gap),by=CHIP_BTN_Y;
+      // Chip circle
+      ctx.fillStyle=CHIP_COL[i];ctx.beginPath();ctx.arc(bx+btnW/2,by+btnH/2,11,0,Math.PI*2);ctx.fill();
+      if(i===selChip){{ctx.strokeStyle='#ffd700';ctx.lineWidth=2;ctx.stroke();}}
+      else{{ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=1;ctx.stroke();}}
+      ctx.fillStyle='#fff';ctx.font='bold 7px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('$'+CHIPS[i],bx+btnW/2,by+btnH/2);
+    }}
+    // Clear bets button
+    var clrX=startX+4*(btnW+gap),clrY=CHIP_BTN_Y;
+    ctx.fillStyle='#7a2020';ctx.beginPath();ctx.arc(clrX+24,clrY+11,11,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 6px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('Clear',clrX+24,clrY+11);
+  }}
+
+  function drawSpinButton(){{
+    var bx=GX,by=H-40,bw=208,bh=28;
+    var canSpin=state==='betting'&&totalBet>0;
+    ctx.fillStyle=canSpin?'#c0392b':'#7a4040';
+    ctx.beginPath();ctx.roundRect(bx,by,bw,bh,6);ctx.fill();
+    ctx.fillStyle=canSpin?'#fff':'rgba(255,255,255,0.4)';
+    ctx.font='bold 13px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(state==='result'?'New Spin':'SPIN',bx+bw/2,by+bh/2);
+  }}
+
+  function drawBackground(){{
+    // Green felt table
+    var felt=ctx.createRadialGradient(WCX,WCY,40,WCX,WCY,260);
+    felt.addColorStop(0,'#1e6b1e');felt.addColorStop(1,'#144014');
+    ctx.fillStyle=felt;ctx.fillRect(0,0,W,H);
+  }}
+
+  function drawResultBanner(){{
+    if(state!=='result')return;
+    ctx.fillStyle='rgba(0,0,0,0.6)';ctx.beginPath();ctx.roundRect(WCX-65,WCY+100,130,36,6);ctx.fill();
+    ctx.font='bold 13px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=resultColor||'#fff';
+    ctx.fillText(resultMsg,WCX,WCY+118);
+    var num=winNumber;
+    ctx.fillStyle=pocketColor(num);ctx.beginPath();ctx.arc(WCX,WCY+140,12,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 9px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(num,WCX,WCY+140);
+    ctx.fillStyle='rgba(255,255,255,0.6)';ctx.font='10px DM Sans,sans-serif';
+    ctx.fillText('Tap to bet again',WCX,WCY+158);
+  }}
+
+  // ── Physics update ───────────────────────────────────────────────────
+  function updateSpin(){{
+    if(state!=='spinning')return;
+    spinFrame++;
+
+    // Wheel decelerates
+    wheelRot+=wheelSpeed;
+    wheelSpeed*=0.9985;
+
+    // Ball counter-spins and decelerates faster
+    ballAngle+=ballSpeed;
+    ballSpeed*=0.9960;
+
+    // After ~half time, ball starts to drop inward
+    if(spinFrame>140){{
+      var dropFrac=(spinFrame-140)/80;
+      ballR=TRACK_R-(TRACK_R-POCKET_R)*Math.min(1,dropFrac);
+      // Simulate bumping — small radial wobble
+      bounceOff=Math.sin(spinFrame*0.55)*(6*(1-Math.min(1,dropFrac)));
+    }}
+
+    if(spinFrame>=SPIN_FRAMES){{
+      finishSpin();
+    }}
+  }}
+
+  // ── Main loop ────────────────────────────────────────────────────────
+  function tick(){{
+    ctx.clearRect(0,0,W,H);
+    drawBackground();
+    drawWheel();
+    drawBall();
+    drawBettingGrid();
+    drawChips();
+    drawSpinButton();
+    if(state!=='spinning')drawResultBanner();
+    updateSpin();
+    requestAnimationFrame(tick);
+  }}
+
+  // ── Input ─────────────────────────────────────────────────────────────
+  function getPos(e){{
+    var rect=cv.getBoundingClientRect();
+    var px,py;
+    if(e.touches){{px=e.touches[0].clientX-rect.left;py=e.touches[0].clientY-rect.top;}}
+    else{{px=e.clientX-rect.left;py=e.clientY-rect.top;}}
+    return{{x:px*(W/rect.width),y:py*(H/rect.height)}};
+  }}
+
+  cv.addEventListener('click',function(e){{
+    var pos=getPos(e);
+    var x=pos.x,y=pos.y;
+
+    // Result state: tap anywhere to reset
+    if(state==='result'){{
+      state='betting';resultMsg='';
+      document.getElementById('roulResult').textContent='—';
+      return;
+    }}
+
+    // Chip selector
+    var btnW=48,gap=4;
+    for(var i=0;i<CHIPS.length;i++){{
+      var bx=GX+i*(btnW+gap)+btnW/2,by=CHIP_BTN_Y+11;
+      if(Math.hypot(x-bx,y-by)<12){{selChip=i;return;}}
+    }}
+    // Clear button
+    if(Math.hypot(x-(GX+4*(btnW+gap)+24),y-(CHIP_BTN_Y+11))<12){{clearBets();return;}}
+
+    // Spin button
+    var sbx=GX,sby=H-40,sbw=208,sbh=28;
+    if(x>=sbx&&x<=sbx+sbw&&y>=sby&&y<=sby+sbh){{spin();return;}}
+
+    // 0 cell
+    var z=numCell(0);
+    if(x>=z.x&&x<=z.x+z.w&&y>=z.y&&y<=z.y+z.h){{placeBet('n0');return;}}
+    // Number cells
+    for(var n=1;n<=36;n++){{
+      var c=numCell(n);
+      if(x>=c.x&&x<=c.x+c.w&&y>=c.y&&y<=c.y+c.h){{placeBet('n'+n);return;}}
+    }}
+    // Outside bets
+    for(var i=0;i<OB.length;i++){{
+      var o=OB[i];
+      if(x>=o.x&&x<=o.x+o.w&&y>=o.y&&y<=o.y+o.h){{placeBet(o.k);return;}}
+    }}
+  }});
+
+  updateUI();
+  tick();
+}})();
+
+/* ── Blackjack ── */
+(function(){{
+  var cv=document.getElementById('blackjackCanvas');
+  if(!cv)return;
+  var ctx=cv.getContext('2d');
+  var W=cv.width,H=cv.height;
+
+  var SUITS=['♠','♥','♦','♣'];
+  var RANKS=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+  function cardVal(rank){{
+    if(rank==='A')return 11;
+    if(['J','Q','K'].indexOf(rank)>=0)return 10;
+    return parseInt(rank,10);
+  }}
+  function handValue(hand){{
+    var total=0,aces=0;
+    hand.forEach(function(c){{
+      total+=c.val;
+      if(c.rank==='A')aces++;
+    }});
+    while(total>21&&aces>0){{total-=10;aces--;}}
+    return total;
+  }}
+
+  var CHIPS=[25,50,100,250];
+  var CHIP_COL=['#1a7a2a','#2255bb','#333','#7b2fb5'];
+  var selChip=0;
+
+  var balance=parseInt(localStorage.getItem('bjBalance')||'1000',10);
+  var currentBet=0;
+  var state='betting'; // betting | playing | dealerTurn | done
+  var deck=[],playerHand=[],dealerHand=[];
+  var dealerHoleRevealed=false;
+  var dblDown=false;
+
+  function mkDeck(){{
+    var d=[];
+    SUITS.forEach(function(s){{RANKS.forEach(function(r){{d.push({{suit:s,rank:r,val:cardVal(r),faceUp:true}});}});}});
+    // Shuffle (Fisher-Yates)
+    for(var i=d.length-1;i>0;i--){{var j=Math.floor(Math.random()*(i+1));var tmp=d[i];d[i]=d[j];d[j]=tmp;}}
+    return d;
+  }}
+  function deal(){{
+    if(deck.length<15)deck=mkDeck();
+    var c=deck.pop();return c;
+  }}
+
+  function startRound(){{
+    if(currentBet===0)return;
+    balance-=currentBet;
+    deck=mkDeck();
+    playerHand=[deal(),deal()];
+    dealerHand=[deal(),{{...deal(),faceUp:false}}];
+    dealerHoleRevealed=false;dblDown=false;
+    state='playing';
+    // Check blackjack
+    if(handValue(playerHand)===21){{
+      revealAndSettle();
+    }}
+    updateUI();
+  }}
+
+  function hit(){{
+    if(state!=='playing')return;
+    playerHand.push(deal());
+    if(handValue(playerHand)>21){{revealAndSettle();}}
+    updateUI();
+  }}
+
+  function stand(){{
+    if(state!=='playing')return;
+    state='dealerTurn';
+    dealerTurn();
+  }}
+
+  function doubleDown(){{
+    if(state!=='playing'||playerHand.length!==2)return;
+    if(currentBet>balance)return;
+    balance-=currentBet;currentBet*=2;dblDown=true;
+    playerHand.push(deal());
+    revealAndSettle();
+    updateUI();
+  }}
+
+  function dealerTurn(){{
+    dealerHand.forEach(function(c){{c.faceUp=true;}});
+    dealerHoleRevealed=true;
+    while(handValue(dealerHand)<17){{dealerHand.push(deal());}}
+    revealAndSettle();
+  }}
+
+  function revealAndSettle(){{
+    dealerHand.forEach(function(c){{c.faceUp=true;}});
+    dealerHoleRevealed=true;
+    var pv=handValue(playerHand),dv=handValue(dealerHand);
+    var pBJ=pv===21&&playerHand.length===2,dBJ=dv===21&&dealerHand.length===2;
+    var msg='',payout=0;
+    if(pv>21){{msg='Bust — lose $'+currentBet;payout=0;}}
+    else if(pBJ&&!dBJ){{msg='Blackjack! +$'+Math.floor(currentBet*1.5);payout=currentBet+Math.floor(currentBet*1.5);}}
+    else if(dv>21){{msg='Dealer bust — win +$'+currentBet;payout=currentBet*2;}}
+    else if(pv>dv){{msg='Win +$'+currentBet;payout=currentBet*2;}}
+    else if(pv===dv){{msg='Push';payout=currentBet;}}
+    else{{msg='Lose -$'+currentBet;payout=0;}}
+    balance+=payout;
+    if(balance<=0){{balance=1000;msg+=' (refilled to $1000)';}}
+    localStorage.setItem('bjBalance',balance);
+    document.getElementById('bjMsg').textContent=msg;
+    state='done';
+    updateUI();
+  }}
+
+  function newRound(){{
+    if(state!=='done'&&state!=='betting')return;
+    currentBet=0;
+    playerHand=[];dealerHand=[];
+    state='betting';
+    document.getElementById('bjMsg').textContent='';
+    updateUI();
+  }}
+
+  function updateUI(){{
+    document.getElementById('bjBalance').textContent=balance;
+    document.getElementById('bjBet').textContent=currentBet;
+  }}
+
+  // ── Draw helpers ─────────────────────────────────────────────────────
+  function drawCard(x,y,card,faceUp){{
+    var CW=38,CH=52;
+    ctx.save();
+    ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.roundRect(x,y,CW,CH,4);ctx.fill();
+    if(faceUp===false||(!card.faceUp)){{
+      // Card back
+      ctx.fillStyle='#1a3a8a';ctx.beginPath();ctx.roundRect(x+2,y+2,CW-4,CH-4,3);ctx.fill();
+      ctx.strokeStyle='#fff';ctx.lineWidth=0.5;
+      for(var xi=0;xi<4;xi++)for(var yi=0;yi<6;yi++){{
+        ctx.beginPath();ctx.arc(x+5+xi*8,y+5+yi*8,2,0,Math.PI*2);ctx.stroke();
+      }}
+    }} else {{
+      var red=card.suit==='♥'||card.suit==='♦';
+      ctx.fillStyle=red?'#c0392b':'#1a1a1a';
+      ctx.font='bold 9px DM Sans,sans-serif';ctx.textAlign='left';ctx.textBaseline='top';
+      ctx.fillText(card.rank,x+3,y+3);
+      ctx.font='bold 8px DM Sans,sans-serif';
+      ctx.fillText(card.suit,x+3,y+13);
+      // Center suit
+      ctx.font=CH>40?'22px serif':'18px serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(card.suit,x+CW/2,y+CH/2);
+    }}
+    ctx.strokeStyle='#ccc';ctx.lineWidth=1;
+    ctx.beginPath();ctx.roundRect(x,y,CW,CH,4);ctx.stroke();
+    ctx.restore();
+  }}
+
+  function drawHand(hand,startX,y,label,showSum){{
+    hand.forEach(function(card,i){{
+      drawCard(startX+i*44,y,card,card.faceUp);
+    }});
+    if(label){{
+      ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='11px DM Sans,sans-serif';
+      ctx.textAlign='left';ctx.textBaseline='top';
+      ctx.fillText(label,startX,y-16);
+    }}
+    if(showSum&&hand.length>0){{
+      var revealed=hand.filter(function(c){{return c.faceUp;}});
+      if(revealed.length>0){{
+        var sum=handValue(revealed);
+        ctx.fillStyle='#fff';ctx.font='bold 12px DM Sans,sans-serif';
+        ctx.textAlign='right';ctx.textBaseline='top';
+        ctx.fillText(sum,startX+hand.length*44+4,y);
+      }}
+    }}
+  }}
+
+  function drawButtons(){{
+    var by=H-48;
+    if(state==='playing'){{
+      var btns=[
+        {{l:'Hit',x:20,fill:'#1a7a2a'}},
+        {{l:'Stand',x:90,fill:'#2255bb'}},
+        {{l:'Double',x:165,fill:'#7b2fb5'}},
+      ];
+      btns[2].fill='#7b2fb5';
+      btns.forEach(function(b){{
+        ctx.fillStyle=b.l==='Double'?'#7b2fb5':b.fill;
+        ctx.beginPath();ctx.roundRect(b.x,by,64,30,5);ctx.fill();
+        ctx.fillStyle='#fff';ctx.font='bold 11px DM Sans,sans-serif';
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(b.l,b.x+32,by+15);
+      }});
+    }} else if(state==='betting'){{
+      // Chip selector
+      CHIPS.forEach(function(amt,i){{
+        var bx=20+i*60,cy=by+15;
+        ctx.fillStyle=CHIP_COL[i];
+        ctx.beginPath();ctx.arc(bx+20,cy,16,0,Math.PI*2);ctx.fill();
+        if(i===selChip){{ctx.strokeStyle='#ffd700';ctx.lineWidth=2.5;ctx.stroke();}}
+        else{{ctx.strokeStyle='rgba(255,255,255,0.3)';ctx.lineWidth=1;ctx.stroke();}}
+        ctx.fillStyle='#fff';ctx.font='bold 8px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText('$'+amt,bx+20,cy);
+      }});
+      // Deal button
+      var dealOk=currentBet>0;
+      ctx.fillStyle=dealOk?'#c0392b':'#7a4040';
+      ctx.beginPath();ctx.roundRect(W-100,by,80,30,5);ctx.fill();
+      ctx.fillStyle=dealOk?'#fff':'rgba(255,255,255,0.4)';
+      ctx.font='bold 12px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('Deal',W-60,by+15);
+    }} else if(state==='done'){{
+      ctx.fillStyle='#475417';ctx.beginPath();ctx.roundRect(W/2-50,by,100,30,5);ctx.fill();
+      ctx.fillStyle='#fff';ctx.font='bold 12px DM Sans,sans-serif';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('New Hand',W/2,by+15);
+    }}
+  }}
+
+  function drawScene(){{
+    // Felt
+    var felt=ctx.createLinearGradient(0,0,0,H);
+    felt.addColorStop(0,'#1b5e20');felt.addColorStop(1,'#0d3d10');
+    ctx.fillStyle=felt;ctx.fillRect(0,0,W,H);
+    // Oval table outline
+    ctx.strokeStyle='rgba(255,255,255,0.15)';ctx.lineWidth=3;
+    ctx.beginPath();ctx.ellipse(W/2,H/2,W/2-10,H/2-10,0,0,Math.PI*2);ctx.stroke();
+    // Dealer area
+    ctx.fillStyle='rgba(255,255,255,0.06)';ctx.fillRect(0,0,W,100);
+    drawHand(dealerHand,28,28,'Dealer',true);
+    // Player area
+    ctx.fillStyle='rgba(255,255,255,0.06)';ctx.fillRect(0,H-160,W,160);
+    drawHand(playerHand,28,H-145,'You',true);
+    // Bet display
+    if(currentBet>0){{
+      ctx.fillStyle='#ffd700';ctx.beginPath();ctx.arc(W/2,H/2,18,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle='#a08000';ctx.lineWidth=2;ctx.stroke();
+      ctx.fillStyle='#333';ctx.font='bold 9px DM Sans,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('$'+currentBet,W/2,H/2);
+    }}
+    drawButtons();
+  }}
+
+  function tick(){{
+    ctx.clearRect(0,0,W,H);
+    drawScene();
+    requestAnimationFrame(tick);
+  }}
+
+  // ── Input ─────────────────────────────────────────────────────────────
+  function getPos(e){{
+    var rect=cv.getBoundingClientRect();
+    var px,py;
+    if(e.touches){{px=e.touches[0].clientX-rect.left;py=e.touches[0].clientY-rect.top;}}
+    else{{px=e.clientX-rect.left;py=e.clientY-rect.top;}}
+    return{{x:px*(W/rect.width),y:py*(H/rect.height)}};
+  }}
+
+  cv.addEventListener('click',function(e){{
+    var pos=getPos(e);var x=pos.x,y=pos.y;
+    var by=H-48;
+    if(state==='betting'){{
+      // Chip clicks
+      for(var i=0;i<CHIPS.length;i++){{
+        var bx=20+i*60+20;
+        if(Math.hypot(x-bx,y-(by+15))<18){{
+          if(selChip===i){{
+            // Add chip to bet
+            if(CHIPS[i]<=balance-currentBet)currentBet+=CHIPS[i];
+          }} else {{
+            selChip=i;
+          }}
+          updateUI();return;
+        }}
+      }}
+      // Deal button
+      if(x>=W-100&&x<=W-20&&y>=by&&y<=by+30){{startRound();return;}}
+    }} else if(state==='playing'){{
+      if(x>=20&&x<=84&&y>=by&&y<=by+30){{hit();return;}}
+      if(x>=90&&x<=154&&y>=by&&y<=by+30){{stand();return;}}
+      if(x>=165&&x<=229&&y>=by&&y<=by+30){{doubleDown();return;}}
+    }} else if(state==='done'){{
+      if(x>=W/2-50&&x<=W/2+50&&y>=by&&y<=by+30){{newRound();return;}}
+    }}
+  }});
+
+  updateUI();tick();
 }})();
 </script>
 </body></html>"""
