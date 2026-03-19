@@ -102,7 +102,7 @@ def extract_text_from_rich_text(rich_text_array):
 
 def get_games_needing_followup(notion, games_db):
     """
-    Query games where Follow-up Date <= Today and Outreach Status is 'Email Sent'.
+    Query games where Follow-up Date <= Today and Outreach Status is an emailed state.
     """
     today = datetime.now().strftime('%Y-%m-%d')
 
@@ -118,10 +118,10 @@ def get_games_needing_followup(notion, games_db):
                         }
                     },
                     {
-                        "property": "Outreach Status",
-                        "select": {
-                            "equals": "Email Sent"
-                        }
+                        "or": [
+                            {"property": "Outreach Status", "select": {"equals": "Introduction Email - Sent"}},
+                            {"property": "Outreach Status", "select": {"equals": "Follow-Up Email - Sent"}},
+                        ]
                     }
                 ]
             }

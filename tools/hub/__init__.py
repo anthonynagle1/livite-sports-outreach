@@ -154,7 +154,7 @@ def _get_pipeline():
     today = date.today().isoformat()
     result = {'games': {}, 'queue': {}}
 
-    for status in ['Not Contacted', 'Email Sent', 'Responded', 'Booked']:
+    for status in ['Not Contacted', 'Introduction Email - Sent', 'Follow-Up Email - Sent', 'Responded', 'In Conversation', 'Interested', 'Booked']:
         result['games'][status] = _count_pages(notion, games_db, {
             "and": [
                 {"property": "Game Date", "date": {"on_or_after": today}},
@@ -547,7 +547,7 @@ async function loadPipeline() {
   const g = data.games || {};
   const q = data.queue || {};
   let html = '';
-  [['Not Contacted','Not Contacted'],['Emailed','Email Sent'],['Responded','Responded'],['Booked','Booked']].forEach(function(pair) {
+  [['Not Contacted','Not Contacted'],['Intro Sent','Introduction Email - Sent'],['Follow-Up Sent','Follow-Up Email - Sent'],['Responded','Responded'],['In Conversation','In Conversation'],['Interested','Interested'],['Booked','Booked']].forEach(function(pair) {
     html += '<div class="pipeline-row"><span class="pipeline-count">' + (g[pair[1]] || 0) + '</span><span class="pipeline-label">' + pair[0] + '</span></div>';
   });
   html += '<div class="pipeline-queue">Queue: ' + (q['Draft'] || 0) + ' draft, ' + (q['Approved'] || 0) + ' approved</div>';

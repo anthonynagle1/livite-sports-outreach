@@ -1,11 +1,12 @@
 services:
-  # ── Livite Hub — single service (Flask + Next.js static) ──
+  # ── Livite Hub — single service (Flask + Next.js static + Outreach CRM) ──
   - type: web
     name: livite-hub
     runtime: python
     rootDir: .
     buildCommand: >
       cd web && npm install && npm run build && cd .. &&
+      cd outreach/frontend && npm install && npm run build && cd ../.. &&
       pip install -r requirements.txt
     startCommand: gunicorn dashboard_app:app --bind 0.0.0.0:$PORT --timeout 300 --workers 2 --preload
     envVars:
@@ -45,12 +46,20 @@ services:
         sync: false
       - key: NOTION_ORDERS_DB_ID
         sync: false
-
-  # ── CRM cron is now served by livite-hub at /hub/cron ──
-  # livite-crm service removed — consolidated to save costs and fix cold start delays.
-  # Point cron-job.org to: https://<livite-hub-url>/hub/cron?api_key=<HUB_API_KEY>
-  # Add these env vars to livite-hub if not already present:
-  #   NOTION_CONTACTS_DB, NOTION_TEMPLATES_DB, NOTION_SCHOOLS_DB,
-  #   NOTION_CATERING_ORDERS_DS, NOTION_CATERING_ORDERS_DB,
-  #   NOTION_DASHBOARD_CONTACTS_DB, FROM_EMAIL, FROM_NAME,
-  #   GMAIL_TOKEN_JSON, GOOGLE_CREDENTIALS_JSON
+      # ── Outreach CRM env vars ──
+      - key: OUTREACH_USERNAME
+        sync: false
+      - key: OUTREACH_PASSWORD
+        sync: false
+      - key: OUTREACH_CRON_KEY
+        sync: false
+      - key: NOTION_SCHOOLS_DB
+        sync: false
+      - key: NOTION_CONTACTS_DB
+        sync: false
+      - key: NOTION_TEMPLATES_DB
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: FROM_NAME
+        sync: false

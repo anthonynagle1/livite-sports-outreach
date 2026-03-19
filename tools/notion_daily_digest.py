@@ -106,8 +106,10 @@ def get_followups_due(notion, games_db, target_date):
                         "date": {"on_or_before": target_date}
                     },
                     {
-                        "property": "Outreach Status",
-                        "select": {"equals": "Email Sent"}
+                        "or": [
+                            {"property": "Outreach Status", "select": {"equals": "Introduction Email - Sent"}},
+                            {"property": "Outreach Status", "select": {"equals": "Follow-Up Email - Sent"}},
+                        ]
                     }
                 ]
             },
@@ -192,7 +194,8 @@ def get_hot_leads(notion, games_db, min_score=80):
                     {
                         "or": [
                             {"property": "Outreach Status", "select": {"equals": "Not Contacted"}},
-                            {"property": "Outreach Status", "select": {"equals": "Email Sent"}}
+                            {"property": "Outreach Status", "select": {"equals": "Introduction Email - Sent"}},
+                            {"property": "Outreach Status", "select": {"equals": "Follow-Up Email - Sent"}}
                         ]
                     }
                 ]

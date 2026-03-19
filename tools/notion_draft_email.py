@@ -247,6 +247,18 @@ def get_game_details(notion, game_page_id):
             )
             game_data['relationship'] = relationship_name
 
+            # Check Do Not Contact flag
+            game_data['do_not_contact'] = contact_props.get('Do Not Contact', {}).get('checkbox', False)
+
+            # Check Last Response Type for decline tracking
+            last_response = contact_props.get('Last Response Type', {}).get('select')
+            game_data['last_response_type'] = last_response.get('name', '') if last_response else ''
+
+            # Get contact-level response notes for history
+            game_data['contact_response_notes'] = extract_text_from_rich_text(
+                contact_props.get('Response Notes', {}).get('rich_text', [])
+            )
+
         return game_data
 
     except APIResponseError as e:
@@ -509,6 +521,17 @@ def create_draft_for_game(notion, games_db, contacts_db, templates_db, email_que
     if not game_data['contact_email']:
         print("  Error: Contact has no email address", file=sys.stderr)
         return None
+
+    # Skip if contact is flagged Do Not Contact
+    if game_data.get('do_not_contact'):
+        print(f"  Skipping: Contact flagged 'Do Not Contact'", file=sys.stderr)
+        return "duplicate"
+
+    # Skip if contact previously declined (Not Interested)
+    if game_data.get('last_response_type') == 'Not Interested':
+        print(f"  Skipping: Contact previously declined (Last Response Type: Not Interested)", file=sys.stderr)
+        print(f"  Previous notes: {game_data.get('contact_response_notes', '')[:100]}", file=sys.stderr)
+        return "duplicate"
 
     print(f"  Game: {game_data['home_school']} vs {game_data['away_school']}", file=sys.stderr)
     print(f"  Contact: {game_data['contact_name']} ({game_data['contact_email']})", file=sys.stderr)

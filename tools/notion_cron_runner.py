@@ -345,7 +345,7 @@ def run_missed_game_marker():
             has_more = response.get('has_more', False)
             start_cursor = response.get('next_cursor')
 
-        # 2. Past games "Email Sent" with Last Contacted 14+ days ago → "No Response"
+        # 2. Past games with sent emails + Last Contacted 14+ days ago → "No Response"
         has_more = True
         start_cursor = None
         while has_more:
@@ -354,7 +354,10 @@ def run_missed_game_marker():
                 "filter": {
                     "and": [
                         {"property": "Game Date", "date": {"before": today}},
-                        {"property": "Outreach Status", "select": {"equals": "Email Sent"}},
+                        {"or": [
+                            {"property": "Outreach Status", "select": {"equals": "Introduction Email - Sent"}},
+                            {"property": "Outreach Status", "select": {"equals": "Follow-Up Email - Sent"}},
+                        ]},
                         {"property": "Last Contacted", "date": {"before": cutoff_14d}},
                     ]
                 }

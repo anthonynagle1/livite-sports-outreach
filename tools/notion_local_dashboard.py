@@ -170,7 +170,7 @@ def print_dashboard(by_school, total_games):
         # Status breakdown
         statuses = data['statuses']
         status_parts = []
-        for s in ['Not Contacted', 'Email Sent', 'Responded', 'Booked', 'Declined']:
+        for s in ['Not Contacted', 'Introduction Email - Sent', 'Follow-Up Email - Sent', 'Responded', 'In Conversation', 'Interested', 'Booked', 'Not Interested', 'No Response']:
             count = statuses.get(s, 0)
             if count > 0:
                 status_parts.append(f"{s}: {count}")
@@ -192,7 +192,7 @@ def print_dashboard(by_school, total_games):
     print(f"  Schools: {len(by_school)}  |  Games: {total_games}  |  Contact rate: {overall_rate:.0f}%", file=sys.stderr)
 
     pipeline = []
-    for s in ['Not Contacted', 'Email Sent', 'Responded', 'Booked', 'Declined']:
+    for s in ['Not Contacted', 'Introduction Email - Sent', 'Follow-Up Email - Sent', 'Responded', 'In Conversation', 'Interested', 'Booked', 'Not Interested', 'No Response']:
         c = all_statuses.get(s, 0)
         if c > 0:
             pipeline.append(f"{s}: {c}")

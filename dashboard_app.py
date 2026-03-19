@@ -74,6 +74,25 @@ app.register_blueprint(hub_bp)
 from tools.matcha import bp as matcha_bp
 app.register_blueprint(matcha_bp)
 
+# ── Outreach CRM ──
+from outreach.api import all_blueprints as outreach_blueprints
+from flask import send_from_directory as _send_from_directory
+_OUTREACH_DIST = os.path.join(os.path.dirname(__file__), 'outreach', 'frontend', 'dist')
+for _obp in outreach_blueprints:
+    app.register_blueprint(_obp, url_prefix='/outreach')
+
+@app.route('/outreach/', defaults={'path': ''})
+@app.route('/outreach/<path:path>')
+def serve_outreach(path):
+    """Serve Outreach CRM React SPA."""
+    if path and path.startswith('api/'):
+        return {'error': 'Not found'}, 404
+    if path and os.path.isfile(os.path.join(_OUTREACH_DIST, path)):
+        return _send_from_directory(_OUTREACH_DIST, path)
+    if os.path.isfile(os.path.join(_OUTREACH_DIST, 'index.html')):
+        return _send_from_directory(_OUTREACH_DIST, 'index.html')
+    return '<h1>Outreach CRM</h1><p>Frontend not built. Run <code>cd outreach/frontend && npm run build</code></p>', 200
+
 # ── Rate limiting ──
 try:
     from flask_limiter import Limiter

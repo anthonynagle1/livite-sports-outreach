@@ -308,6 +308,43 @@ def update_game_responded(notion, game_page_id, status, notes=None):
         return False
 
 
+def update_contact_response(notion, contact_id, response_type, response_notes=None):
+    """Propagate response type to Contact record for cross-game tracking.
+
+    Updates Last Response Type, Relationship, and Response Notes on the Contact
+    so future games for this contact show the history.
+    """
+    if not contact_id:
+        return False
+    try:
+        properties = {}
+
+        if response_type:
+            properties["Last Response Type"] = {"select": {"name": response_type}}
+
+        # Update Relationship based on response
+        if response_type == 'Booked':
+            properties["Relationship"] = {"select": {"name": "Previous Customer"}}
+        elif response_type in ('Interested', 'Question'):
+            properties["Relationship"] = {"select": {"name": "Previously Responded"}}
+        elif response_type == 'Not Interested':
+            properties["Relationship"] = {"select": {"name": "Previously Responded"}}
+
+        if response_notes:
+            properties["Response Notes"] = {
+                "rich_text": [{"text": {"content": response_notes[:2000]}}]
+            }
+
+        if properties:
+            notion.pages.update(page_id=contact_id, properties=properties)
+            log(f"  Updated Contact {contact_id}: Last Response Type → {response_type}")
+            return True
+
+    except APIResponseError as e:
+        log(f"Error updating Contact {contact_id}: {e}")
+    return False
+
+
 def backfill_thread_ids(notion, email_queue_db, service, our_email):
     """Backfill Gmail Thread IDs for emails sent before tracking was added.
 
@@ -445,6 +482,13 @@ def check_responses(notion, email_queue_db, games_db, service, our_email, dry_ru
                 # Update Game Outreach Status → "Responded" + Notes with reply summary
                 if email_info['game_id']:
                     update_game_responded(notion, email_info['game_id'], 'Responded', notes=note)
+
+                # Propagate response type to Contact for cross-game tracking
+                if email_info.get('contact_id'):
+                    update_contact_response(
+                        notion, email_info['contact_id'], response_type,
+                        response_notes=note
+                    )
 
             stats['replies_found'] += 1
             stats['by_type'][type_label] = stats['by_type'].get(type_label, 0) + 1

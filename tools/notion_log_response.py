@@ -161,7 +161,7 @@ def find_email_by_school(notion, email_queue_db, school_name):
 
 def log_response(notion, email_queue_db, games_db, email_id, status, notes=None):
     """Log a response and update all related records."""
-    valid_statuses = ['Responded', 'Booked', 'Declined']
+    valid_statuses = ['Responded', 'Booked', 'Not Interested', 'In Conversation', 'Interested']
     if status not in valid_statuses:
         print(f"Error: Status must be one of {valid_statuses}", file=sys.stderr)
         return False
@@ -214,7 +214,7 @@ def main():
     parser.add_argument("--list", action="store_true", help="List recent sent emails")
     parser.add_argument("--email-id", help="Email ID to update")
     parser.add_argument("--school", help="Find email by school name")
-    parser.add_argument("--status", choices=['Responded', 'Booked', 'Declined'],
+    parser.add_argument("--status", choices=['Responded', 'Booked', 'Not Interested', 'In Conversation', 'Interested'],
                         help="Response status")
     parser.add_argument("--notes", help="Optional notes about the response")
 

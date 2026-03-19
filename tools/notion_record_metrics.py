@@ -127,7 +127,10 @@ def compute_metrics(notion, email_queue_db, games_db, orders_db):
     email_sent_games = query_all(notion, games_db, filter_obj={
         "and": [
             {"property": "Game Date", "date": {"on_or_after": today}},
-            {"property": "Outreach Status", "select": {"equals": "Email Sent"}},
+            {"or": [
+                {"property": "Outreach Status", "select": {"equals": "Introduction Email - Sent"}},
+                {"property": "Outreach Status", "select": {"equals": "Follow-Up Email - Sent"}},
+            ]},
         ]
     })
 

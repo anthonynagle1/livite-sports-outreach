@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply font-body;
+  }
+  h1, h2, h3 {
+    @apply font-display;
+    letter-spacing: -0.03em;
+  }
+}

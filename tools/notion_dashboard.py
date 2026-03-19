@@ -101,7 +101,10 @@ def compute_stats(notion, games_db, contacts_db, schools_db, orders_db=None,
     print("  Querying follow-ups due...", file=sys.stderr)
     followups_due = query_all(notion, games_db, filter_obj={
         "and": [
-            {"property": "Outreach Status", "select": {"equals": "Email Sent"}},
+            {"or": [
+                {"property": "Outreach Status", "select": {"equals": "Introduction Email - Sent"}},
+                {"property": "Outreach Status", "select": {"equals": "Follow-Up Email - Sent"}},
+            ]},
             {"property": "Follow-up Date", "date": {"on_or_before": today}},
         ]
     })
@@ -153,7 +156,7 @@ def compute_stats(notion, games_db, contacts_db, schools_db, orders_db=None,
         'without_contact': without_contact,
         'coverage_pct': coverage_pct,
         'not_contacted': by_status.get('Not Contacted', 0),
-        'email_sent': by_status.get('Email Sent', 0),
+        'email_sent': by_status.get('Introduction Email - Sent', 0) + by_status.get('Follow-Up Email - Sent', 0),
         'responded': by_status.get('Responded', 0),
         'booked': by_status.get('Booked', 0),
         'missed': len(missed_games),

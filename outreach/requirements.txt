@@ -1,0 +1,9 @@
+flask==3.1.0
+gunicorn==23.0.0
+notion-client==2.2.1
+python-dotenv==1.1.0
+pyyaml==6.0.2
+requests==2.32.3
+google-api-python-client==2.108.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.0

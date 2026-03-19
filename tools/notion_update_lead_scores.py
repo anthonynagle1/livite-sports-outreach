@@ -96,8 +96,11 @@ def get_games_to_score(notion, games_db, sport_filter=None):
     filter_conditions = {
         "or": [
             {"property": "Outreach Status", "select": {"equals": "Not Contacted"}},
-            {"property": "Outreach Status", "select": {"equals": "Email Sent"}},
-            {"property": "Outreach Status", "select": {"equals": "Responded"}}
+            {"property": "Outreach Status", "select": {"equals": "Introduction Email - Sent"}},
+            {"property": "Outreach Status", "select": {"equals": "Follow-Up Email - Sent"}},
+            {"property": "Outreach Status", "select": {"equals": "Responded"}},
+            {"property": "Outreach Status", "select": {"equals": "In Conversation"}},
+            {"property": "Outreach Status", "select": {"equals": "Interested"}}
         ]
     }
 
@@ -171,7 +174,7 @@ def get_declined_schools(notion, games_db):
             database_id=games_db,
             filter={
                 "property": "Outreach Status",
-                "select": {"equals": "Declined"}
+                "select": {"equals": "Not Interested"}
             }
         )
 

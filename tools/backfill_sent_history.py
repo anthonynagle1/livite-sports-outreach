@@ -40,10 +40,34 @@ except ImportError:
 
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from notion_send_gmail import get_gmail_service
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
 
 load_dotenv()
+
+
+def get_catering_gmail_service():
+    """Get Gmail API service authenticated as catering@livite.com."""
+    token_path = os.getenv('CATERING_TOKEN_PATH', 'catering_token.json')
+    if not os.path.exists(token_path):
+        print(f"Error: {token_path} not found. Run tools/auth_catering_gmail.py first.", file=sys.stderr)
+        sys.exit(1)
+    creds = Credentials.from_authorized_user_file(token_path)
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        # Save refreshed token
+        import json
+        with open(token_path, 'w') as f:
+            json.dump({
+                "token": creds.token,
+                "refresh_token": creds.refresh_token,
+                "token_uri": creds.token_uri,
+                "client_id": creds.client_id,
+                "client_secret": creds.client_secret,
+                "scopes": list(creds.scopes or []),
+            }, f, indent=2)
+    return build('gmail', 'v1', credentials=creds)
 
 
 def log(msg):
@@ -208,9 +232,9 @@ def main():
         log("Error: NOTION_CONTACTS_DB and NOTION_GAMES_DB must be set")
         sys.exit(1)
 
-    # Get Gmail service
-    log("Connecting to Gmail...")
-    service = get_gmail_service()
+    # Get Gmail service (catering@livite.com)
+    log("Connecting to Gmail (catering@livite.com)...")
+    service = get_catering_gmail_service()
     profile = service.users().getProfile(userId='me').execute()
     gmail_account = profile['emailAddress']
     log(f"Scanning sent folder for: {gmail_account}")

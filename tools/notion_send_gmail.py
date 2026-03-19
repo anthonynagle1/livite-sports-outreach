@@ -59,9 +59,32 @@ SCOPES = [
 def get_gmail_credentials():
     """
     Get Gmail API credentials, handling OAuth flow if needed.
-    Uses same credentials.json as Sheets export.
+
+    Supports two modes:
+    1. File-based: credentials.json + token.json (local dev)
+    2. Env var-based: GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN (Render/production)
     """
     creds = None
+
+    # Mode 2: Env var-based credentials (for hosted environments)
+    client_id = os.getenv('GOOGLE_CLIENT_ID')
+    client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
+    refresh_token = os.getenv('GOOGLE_REFRESH_TOKEN')
+
+    if client_id and client_secret and refresh_token:
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri='https://oauth2.googleapis.com/token',
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=SCOPES,
+        )
+        if not creds.valid:
+            creds.refresh(Request())
+        return creds
+
+    # Mode 1: File-based credentials (local dev)
     creds_path = os.getenv('GOOGLE_SHEETS_CREDENTIALS_PATH', 'credentials.json')
     token_path = os.getenv('GOOGLE_SHEETS_TOKEN_PATH', 'token.json')
 

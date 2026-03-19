@@ -219,12 +219,17 @@ def update_game_outreach(notion, game_page_id):
         today = datetime.now().strftime('%Y-%m-%d')
         followup = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
 
+        # Determine if this is intro or follow-up based on First Contacted
+        game = notion.pages.retrieve(page_id=game_page_id)
+        first_contacted = game['properties'].get('First Contacted', {}).get('date')
+        outreach_status = "Follow-Up Email - Sent" if first_contacted else "Introduction Email - Sent"
+
         notion.pages.update(
             page_id=game_page_id,
             properties={
                 "Last Contacted": {"date": {"start": today}},
                 "Follow-up Date": {"date": {"start": followup}},
-                "Outreach Status": {"select": {"name": "Email Sent"}}
+                "Outreach Status": {"select": {"name": outreach_status}}
             }
         )
         print(f"  Updated Game: Last Contacted={today}, Follow-up={followup}", file=sys.stderr)
