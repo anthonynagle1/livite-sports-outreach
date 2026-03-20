@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Schedule from './pages/Schedule'
 import GameDetail from './pages/GameDetail'
 import Emails from './pages/Emails'
+import Calendar from './pages/Calendar'
 
 export default function App() {
   const [user, setUser] = useState<{ name: string; role: string } | null>(null)
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/schedule" element={<Schedule />} />
         <Route path="/schedule/:gameId" element={<GameDetail />} />
+        <Route path="/calendar" element={<Calendar />} />
         <Route path="/emails" element={<Emails />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

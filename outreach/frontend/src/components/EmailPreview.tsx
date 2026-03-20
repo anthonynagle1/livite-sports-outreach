@@ -6,9 +6,11 @@ import { api } from '../api/client'
 interface EmailPreviewProps {
   email: EmailEntry
   onUpdate: () => void
+  highlight?: boolean
+  muted?: boolean
 }
 
-export default function EmailPreview({ email, onUpdate }: EmailPreviewProps) {
+export default function EmailPreview({ email, onUpdate, highlight, muted }: EmailPreviewProps) {
   const [approving, setApproving] = useState(false)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -125,8 +127,9 @@ export default function EmailPreview({ email, onUpdate }: EmailPreviewProps) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-brand-dark/5
-                    shadow-[0_1px_3px_rgba(71,84,23,0.04)]">
+    <div className={`bg-white rounded-xl border shadow-[0_1px_3px_rgba(71,84,23,0.04)]
+                     ${highlight ? 'border-status-responded/30 ring-1 ring-status-responded/10' : 'border-brand-dark/5'}
+                     ${muted ? 'opacity-60' : ''}`}>
       {/* Clickable header */}
       <button
         onClick={() => setExpanded(!expanded)}
@@ -140,6 +143,12 @@ export default function EmailPreview({ email, onUpdate }: EmailPreviewProps) {
               To: {email.to_email || '(unknown)'}
               {email.sport && ` · ${email.sport}`}
             </p>
+            {/* Response date indicator */}
+            {email.response_date && (
+              <p className="text-xs text-status-responded font-medium mt-0.5">
+                Replied {formatMetaDate(email.response_date)}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <StatusBadge status={email.status} />
@@ -195,10 +204,20 @@ export default function EmailPreview({ email, onUpdate }: EmailPreviewProps) {
           <div className="flex items-center gap-3 mt-2 text-xs text-brand-muted/70">
             {email.game_date && <span>Game: {email.game_date}</span>}
             {email.sent_at && <span>Sent: {email.sent_at}</span>}
+            {email.response_date && <span className="text-status-responded">Replied: {formatMetaDate(email.response_date)}</span>}
             {email.created && <span>Created: {new Date(email.created).toLocaleDateString()}</span>}
           </div>
         </div>
       )}
     </div>
   )
+}
+
+function formatMetaDate(dateStr: string): string {
+  if (!dateStr) return ''
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  } catch {
+    return dateStr
+  }
 }

@@ -224,18 +224,35 @@ export default function Schedule() {
 }
 
 
+function parseGameDate(dateStr: string): Date | null {
+  if (!dateStr) return null
+  // Handle YYYY-MM-DD (Notion format) — parse as local date, not UTC
+  const parts = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (parts) {
+    return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
+  }
+  const dt = new Date(dateStr)
+  return isNaN(dt.getTime()) ? null : dt
+}
+
 function groupByMonth(games: Game[]): [string, Game[]][] {
+  // Sort games by date first (handles any API ordering quirks)
+  const sorted = [...games].sort((a, b) => {
+    const da = parseGameDate(a.game_date)
+    const db = parseGameDate(b.game_date)
+    if (!da && !db) return 0
+    if (!da) return 1
+    if (!db) return -1
+    return da.getTime() - db.getTime()
+  })
+
   const groups = new Map<string, Game[]>()
 
-  for (const game of games) {
+  for (const game of sorted) {
     let monthKey = 'Unknown'
-    if (game.game_date) {
-      try {
-        const dt = new Date(game.game_date)
-        monthKey = dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-      } catch {
-        // keep 'Unknown'
-      }
+    const dt = parseGameDate(game.game_date)
+    if (dt) {
+      monthKey = dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     }
     const list = groups.get(monthKey) || []
     list.push(game)

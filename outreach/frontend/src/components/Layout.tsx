@@ -4,6 +4,7 @@ import { api } from '../api/client'
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: '◈' },
   { path: '/schedule', label: 'Schedule', icon: '◻' },
+  { path: '/calendar', label: 'Calendar', icon: '▦' },
   { path: '/emails', label: 'Emails', icon: '◎' },
 ]
 

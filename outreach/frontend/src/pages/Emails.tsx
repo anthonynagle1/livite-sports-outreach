@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from '../api/client'
 import type { EmailEntry } from '../api/types'
 import EmailPreview from '../components/EmailPreview'
@@ -40,6 +40,17 @@ export default function Emails() {
     }
   }
 
+  /* For Responded tab: split into actual replies vs no reply yet */
+  const { withResponse, withoutResponse } = useMemo(() => {
+    if (activeTab !== 'Responded') return { withResponse: [], withoutResponse: [] }
+    return {
+      withResponse: emails.filter(e => e.response_date),
+      withoutResponse: emails.filter(e => !e.response_date),
+    }
+  }, [emails, activeTab])
+
+  const isRespondedTab = activeTab === 'Responded'
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -73,7 +84,7 @@ export default function Emails() {
             disabled={approvingAll}
             className="text-xs font-medium bg-brand-sage text-white px-3 py-1.5 rounded-lg
                        hover:bg-brand-sage/90 active:bg-brand-sage/80
-                       disabled:opacity-50 transition-all"
+                       disabled:opacity-50 transition-colors"
           >
             {approvingAll ? 'Approving...' : `Approve All (${emails.length})`}
           </button>
@@ -95,6 +106,51 @@ export default function Emails() {
           <p className="text-brand-muted">
             No {activeTab.toLowerCase()} emails.
           </p>
+        </div>
+      ) : isRespondedTab ? (
+        /* Responded tab: split into actual replies vs awaiting */
+        <div className="space-y-6">
+          {withResponse.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-2 h-2 rounded-full bg-status-responded" />
+                <h3 className="text-xs font-semibold text-status-responded uppercase tracking-wider">
+                  Replied ({withResponse.length})
+                </h3>
+              </div>
+              <div className="space-y-3">
+                {withResponse.map(email => (
+                  <EmailPreview
+                    key={email.id}
+                    email={email}
+                    onUpdate={fetchEmails}
+                    highlight
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {withoutResponse.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-2 h-2 rounded-full bg-gray-300" />
+                <h3 className="text-xs font-semibold text-brand-muted uppercase tracking-wider">
+                  Awaiting Response ({withoutResponse.length})
+                </h3>
+              </div>
+              <div className="space-y-3">
+                {withoutResponse.map(email => (
+                  <EmailPreview
+                    key={email.id}
+                    email={email}
+                    onUpdate={fetchEmails}
+                    muted
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
