@@ -875,6 +875,59 @@ def _build_email_html(metrics, comparisons, date,
         % (_fmt(food_cost), _fmt(fixed_cost), labor_hours, unique_cust)
     )
 
+    # ── Weekly Recap (Mondays only) ──
+    if date.weekday() == 0:  # Monday
+        try:
+            from scorecard.data import compute_weekly_scorecard
+            sc = compute_weekly_scorecard(target_date=date - timedelta(days=1))
+            cur = sc.get('current', {})
+            deltas_sc = sc.get('deltas', {})
+            wk_label = sc.get('week_label', 'Last Week')
+
+            def _sc_delta(metric):
+                d = deltas_sc.get(metric, {}).get('wow', (0, None))
+                pct = d[1]
+                if pct is None:
+                    return ''
+                arrow = '&#9650;' if pct > 0 else '&#9660;'
+                return ' <span style="font-size:11px;">%s%.1f%%</span>' % (arrow, abs(pct))
+
+            parts.append(
+                '<div class="card">'
+                '<p class="stitle">Weekly Recap &mdash; %s</p>'
+                '<table style="font-size:13px;">'
+                '<tr><td style="padding:4px 8px;border:none;">Revenue</td>'
+                '<td style="padding:4px 8px;text-align:right;border:none;font-family:monospace;">'
+                '%s%s</td></tr>'
+                '<tr><td style="padding:4px 8px;border:none;">Labor</td>'
+                '<td style="padding:4px 8px;text-align:right;border:none;font-family:monospace;">'
+                '%s (%.1f%%)</td></tr>'
+                '<tr><td style="padding:4px 8px;border:none;">Prime Cost</td>'
+                '<td style="padding:4px 8px;text-align:right;border:none;font-family:monospace;">'
+                '%.1f%%</td></tr>'
+                '<tr><td style="padding:4px 8px;border:none;">Avg Check</td>'
+                '<td style="padding:4px 8px;text-align:right;border:none;font-family:monospace;">'
+                '%s%s</td></tr>'
+                '<tr><td style="padding:4px 8px;border:none;">Orders</td>'
+                '<td style="padding:4px 8px;text-align:right;border:none;font-family:monospace;">'
+                '%s</td></tr>'
+                '</table>'
+                '<div style="text-align:center;margin-top:8px;">'
+                '<a href="https://livite-dashboard.onrender.com/scorecard" '
+                'style="font-size:12px;color:#475417;">View Full Scorecard &rarr;</a>'
+                '</div></div>'
+                % (
+                    wk_label,
+                    _fmt(cur.get('revenue', 0)), _sc_delta('revenue'),
+                    _fmt(cur.get('labor', 0)), cur.get('labor_pct', 0),
+                    cur.get('prime_cost_pct', 0),
+                    _fmt(cur.get('avg_check', 0)), _sc_delta('avg_check'),
+                    '{:,}'.format(int(cur.get('orders', 0))),
+                )
+            )
+        except Exception as e:
+            logger.debug("Weekly recap skipped: %s", e)
+
     # ── Footer ──
     parts.append(
         '<div style="text-align:center;padding:12px 0;font-size:11px;'

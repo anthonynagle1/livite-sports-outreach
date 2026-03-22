@@ -8758,6 +8758,108 @@ def api_send_daily_report():
     return jsonify(result), status
 
 
+# ── Weekly Scorecard ──
+@app.route('/scorecard')
+@owner_required
+def scorecard():
+    """Weekly Scorecard — top KPIs with trends and comparisons."""
+    try:
+        from tools.scorecard import compute_weekly_scorecard, build_scorecard_page
+        target = request.args.get('week')
+        target_date = datetime.strptime(target, "%Y%m%d") if target else None
+        metrics = compute_weekly_scorecard(target_date=target_date)
+        logo = _LOGO_B64 or _load_logo()
+        html = build_scorecard_page(metrics, logo_b64=logo)
+        return Response(html, content_type='text/html')
+    except Exception as e:
+        logger.error("Error generating scorecard: %s", e, exc_info=True)
+        return _error_page(f"Error generating weekly scorecard: {e}")
+
+
+# ── Monthly P&L Report ──
+@app.route('/monthly')
+@owner_required
+def monthly():
+    """Monthly P&L Report — backward-looking monthly summary."""
+    try:
+        from tools.monthly import compute_monthly_report, build_monthly_page
+        month_str = request.args.get('month', '')
+        metrics = compute_monthly_report(month_str or None)
+        logo = _LOGO_B64 or _load_logo()
+        html = build_monthly_page(metrics, logo_b64=logo)
+        return Response(html, content_type='text/html')
+    except Exception as e:
+        logger.error("Error generating monthly report: %s", e, exc_info=True)
+        return _error_page(f"Error generating monthly report: {e}")
+
+
+# ── Vendor Price Trend Alerts ──
+@app.route('/vendor-alerts')
+@owner_required
+def vendor_alerts():
+    """Vendor Price Alerts — detect price increases and compare vendors."""
+    try:
+        from tools.vendor_alerts import compute_vendor_alerts, build_vendor_alerts_page
+        metrics = compute_vendor_alerts()
+        logo = _LOGO_B64 or _load_logo()
+        html = build_vendor_alerts_page(metrics, logo_b64=logo)
+        return Response(html, content_type='text/html')
+    except Exception as e:
+        logger.error("Error generating vendor alerts: %s", e, exc_info=True)
+        return _error_page(f"Error generating vendor alerts: {e}")
+
+
+# ── Menu Engineering Matrix ──
+@app.route('/menu-engineering')
+@owner_required
+def menu_engineering():
+    """Menu Engineering — Stars/Plowhorses/Puzzles/Dogs quadrant analysis."""
+    try:
+        from tools.menu_engineering import compute_menu_engineering, build_menu_engineering_page
+        days = int(request.args.get('days', '30'))
+        days = min(max(days, 7), 90)
+        metrics = compute_menu_engineering(days=days)
+        logo = _LOGO_B64 or _load_logo()
+        html = build_menu_engineering_page(metrics, logo_b64=logo)
+        return Response(html, content_type='text/html')
+    except Exception as e:
+        logger.error("Error generating menu engineering: %s", e, exc_info=True)
+        return _error_page(f"Error generating menu engineering: {e}")
+
+
+# ── Catering Pipeline Dashboard ──
+@app.route('/pipeline')
+@owner_required
+def pipeline():
+    """Catering Pipeline — outreach funnel and conversion metrics."""
+    try:
+        from tools.pipeline import compute_pipeline_dashboard, build_pipeline_page
+        metrics = compute_pipeline_dashboard()
+        logo = _LOGO_B64 or _load_logo()
+        html = build_pipeline_page(metrics, logo_b64=logo)
+        return Response(html, content_type='text/html')
+    except Exception as e:
+        logger.error("Error generating pipeline dashboard: %s", e, exc_info=True)
+        return _error_page(f"Error generating pipeline dashboard: {e}")
+
+
+# ── Cash Flow Forecast ──
+@app.route('/cashflow')
+@owner_required
+def cashflow():
+    """Cash Flow Forecast — 14-day forward projection."""
+    try:
+        from tools.cashflow import compute_cashflow_forecast, build_cashflow_page
+        balance = float(request.args.get('balance', '0'))
+        metrics = compute_cashflow_forecast(starting_balance=balance)
+        logo = _LOGO_B64 or _load_logo()
+        html = build_cashflow_page(metrics, logo_b64=logo)
+        return Response(html, content_type='text/html')
+    except Exception as e:
+        logger.error("Error generating cashflow forecast: %s", e, exc_info=True)
+        return _error_page(f"Error generating cash flow forecast: {e}")
+
+
 # ── Scheduler: cache warmup + daily email ──
 def _run_cache_warmup():
     """Warm weather cache for all available dates. Runs at 6am ET daily."""
