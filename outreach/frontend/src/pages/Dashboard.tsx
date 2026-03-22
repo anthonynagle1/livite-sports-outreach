@@ -4,6 +4,9 @@ import { api } from '../api/client'
 import type { PipelineStats, Game, ActivityItem } from '../api/types'
 import PipelineBar from '../components/PipelineBar'
 import GameCard from '../components/GameCard'
+import CacheIndicator from '../components/CacheIndicator'
+
+interface CacheMeta { _cache_age?: number | null; _cache_stale?: boolean }
 
 export default function Dashboard() {
   const [pipeline, setPipeline] = useState<PipelineStats | null>(null)
@@ -11,6 +14,7 @@ export default function Dashboard() {
   const [activity, setActivity] = useState<ActivityItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [cacheMeta, setCacheMeta] = useState<CacheMeta>({})
 
   const fetchAll = async () => {
     setError(null)
@@ -21,8 +25,10 @@ export default function Dashboard() {
         api.get('/api/pipeline/activity'),
       ])
 
-      if (pipeRes.status === 'fulfilled') setPipeline(pipeRes.value)
-      else console.error('Pipeline fetch error:', pipeRes.reason)
+      if (pipeRes.status === 'fulfilled') {
+        setPipeline(pipeRes.value)
+        setCacheMeta({ _cache_age: pipeRes.value._cache_age, _cache_stale: pipeRes.value._cache_stale })
+      } else console.error('Pipeline fetch error:', pipeRes.reason)
 
       if (gamesRes.status === 'fulfilled') setUpcoming(gamesRes.value.games.slice(0, 8))
       else console.error('Games fetch error:', gamesRes.reason)
@@ -47,7 +53,10 @@ export default function Dashboard() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-2xl font-bold text-brand-dark">Dashboard</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="font-display text-2xl font-bold text-brand-dark">Dashboard</h2>
+          {!loading && <CacheIndicator age={cacheMeta._cache_age} stale={cacheMeta._cache_stale} />}
+        </div>
         <button
           onClick={() => { setLoading(true); fetchAll() }}
           className="text-xs text-brand-muted hover:text-brand-sage transition-colors"

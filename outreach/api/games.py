@@ -120,7 +120,10 @@ def list_games():
             threading.Thread(
                 target=_fetch_games, args=(cache_key, args_copy), daemon=True
             ).start()
-        return jsonify(cached)
+        from ..lib.cache import cache_age
+        age = cache_age(cache_key)
+        resp = dict(cached, _cache_age=age, _cache_stale=is_stale)
+        return jsonify(resp)
 
     # No cache at all — must fetch synchronously
     result = _fetch_games(cache_key, dict(request.args))

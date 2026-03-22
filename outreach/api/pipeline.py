@@ -76,7 +76,9 @@ def pipeline_stats():
     if cached is not None:
         if is_stale and needs_refresh('pipeline'):
             threading.Thread(target=_fetch_pipeline, daemon=True).start()
-        return jsonify(cached)
+        from ..lib.cache import cache_age
+        resp = dict(cached, _cache_age=cache_age('pipeline'), _cache_stale=is_stale)
+        return jsonify(resp)
 
     result = _fetch_pipeline()
     if result is None:

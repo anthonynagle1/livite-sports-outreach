@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import type { Game } from '../api/types'
 import GameCard from '../components/GameCard'
 import FilterBar from '../components/FilterBar'
+import CacheIndicator from '../components/CacheIndicator'
 
 function todayStr(): string {
   const d = new Date()
@@ -21,6 +22,7 @@ export default function Schedule() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchDrafting, setBatchDrafting] = useState(false)
   const [batchResult, setBatchResult] = useState<{ ok: number; errors: string[]; warnings: string[] } | null>(null)
+  const [cacheMeta, setCacheMeta] = useState<{ age?: number | null; stale?: boolean }>({})
 
   const fetchGames = useCallback(async () => {
     setLoading(true)
@@ -33,6 +35,7 @@ export default function Schedule() {
 
       const data = await api.get(`/api/games?${params.toString()}`)
       setGames(data.games)
+      setCacheMeta({ age: data._cache_age, stale: data._cache_stale })
     } catch (err) {
       console.error('Failed to fetch games:', err)
     } finally {
@@ -90,7 +93,10 @@ export default function Schedule() {
     <div className="space-y-6 pb-20">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h2 className="font-display text-2xl font-bold text-brand-dark">Schedule</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="font-display text-2xl font-bold text-brand-dark">Schedule</h2>
+          {!loading && <CacheIndicator age={cacheMeta.age} stale={cacheMeta.stale} />}
+        </div>
         <FilterBar
           sport={sport} onSportChange={setSport}
           status={status} onStatusChange={setStatus}
