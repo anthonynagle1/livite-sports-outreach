@@ -136,6 +136,71 @@ def approve_email(email_id):
         return jsonify({'error': str(e)}), 500
 
 
+RESPONSE_TYPES = ['Interested', 'Not Interested', 'Booked', 'Question', 'Out of Office']
+
+
+@bp.route('/api/emails/<email_id>/response-type', methods=['PUT'])
+@login_required
+def update_response_type(email_id):
+    """Update the response type classification on a responded email."""
+    client = get_client()
+    data = request.get_json(silent=True) or {}
+
+    response_type = data.get('response_type', '').strip()
+    if response_type and response_type not in RESPONSE_TYPES:
+        return jsonify({'error': f'Invalid response type. Must be one of: {RESPONSE_TYPES}'}), 400
+
+    try:
+        properties = {}
+        if response_type:
+            properties['Response Type'] = {'select': {'name': response_type}}
+        else:
+            # Clear the response type
+            properties['Response Type'] = {'select': None}
+
+        client.pages.update(page_id=email_id, properties=properties)
+
+        # Also update the linked game's outreach status based on response type
+        page = client.pages.retrieve(page_id=email_id)
+        game_ids = [r['id'] for r in page['properties'].get('Game', {}).get('relation', [])]
+        contact_ids = [r['id'] for r in page['properties'].get('Contact', {}).get('relation', [])]
+
+        if game_ids and response_type:
+            game_status = 'Responded'
+            if response_type == 'Booked':
+                game_status = 'Booked'
+            elif response_type == 'Not Interested':
+                game_status = 'Not Interested'
+            elif response_type == 'Out of Office':
+                game_status = 'Out of Office'
+            try:
+                client.pages.update(
+                    page_id=game_ids[0],
+                    properties={'Outreach Status': {'select': {'name': game_status}}}
+                )
+            except Exception as e:
+                logger.warning('Failed to update game status: %s', e)
+
+        # Update contact's last response type
+        if contact_ids and response_type:
+            try:
+                contact_props = {}
+                contact_props['Last Response Type'] = {'select': {'name': response_type}}
+                if response_type == 'Booked':
+                    contact_props['Relationship'] = {'select': {'name': 'Previous Customer'}}
+                elif response_type in ('Interested', 'Question'):
+                    contact_props['Relationship'] = {'select': {'name': 'Previously Responded'}}
+                client.pages.update(page_id=contact_ids[0], properties=contact_props)
+            except Exception as e:
+                logger.warning('Failed to update contact response type: %s', e)
+
+        cache_clear()
+        return jsonify({'ok': True, 'response_type': response_type})
+    except Exception as e:
+        logger.error('Failed to update response type for %s: %s', email_id, e)
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/api/emails/approve-batch', methods=['POST'])
 @login_required
 def approve_batch():

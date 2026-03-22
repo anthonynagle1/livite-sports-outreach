@@ -87,8 +87,14 @@ export interface EmailEntry {
   gmail_thread_id: string
   gmail_message_id: string
   response_date: string
+  response_type: string
+  response_notes: string
+  response_received: boolean
   created: string
 }
+
+export const RESPONSE_TYPES = ['Interested', 'Not Interested', 'Booked', 'Question', 'Out of Office'] as const
+export type ResponseType = typeof RESPONSE_TYPES[number]
 
 export interface PipelineStats {
   games: Record<string, number>

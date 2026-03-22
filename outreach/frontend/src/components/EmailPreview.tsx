@@ -1,7 +1,16 @@
 import { useState } from 'react'
 import type { EmailEntry } from '../api/types'
+import { RESPONSE_TYPES } from '../api/types'
 import StatusBadge from './StatusBadge'
 import { api } from '../api/client'
+
+const RESPONSE_TYPE_STYLES: Record<string, string> = {
+  'Interested': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  'Booked': 'bg-status-booked/15 text-status-booked border-status-booked/30',
+  'Not Interested': 'bg-status-declined/15 text-status-declined border-status-declined/30',
+  'Question': 'bg-amber-50 text-amber-700 border-amber-200',
+  'Out of Office': 'bg-gray-100 text-gray-500 border-gray-200',
+}
 
 interface EmailPreviewProps {
   email: EmailEntry
@@ -17,6 +26,7 @@ export default function EmailPreview({ email, onUpdate, highlight, muted }: Emai
   const [expanded, setExpanded] = useState(false)
   const [editSubject, setEditSubject] = useState(email.subject)
   const [editBody, setEditBody] = useState(email.body)
+  const [updatingType, setUpdatingType] = useState(false)
 
   const handleApprove = async () => {
     setApproving(true)
@@ -56,6 +66,20 @@ export default function EmailPreview({ email, onUpdate, highlight, muted }: Emai
     }
   }
 
+  const handleResponseTypeChange = async (newType: string) => {
+    setUpdatingType(true)
+    try {
+      await api.put(`/api/emails/${email.id}/response-type`, {
+        response_type: newType,
+      })
+      onUpdate()
+    } catch (err) {
+      console.error('Failed to update response type:', err)
+    } finally {
+      setUpdatingType(false)
+    }
+  }
+
   if (editing) {
     return (
       <div className="bg-white rounded-xl border-2 border-brand-sage/30 p-4
@@ -65,7 +89,6 @@ export default function EmailPreview({ email, onUpdate, highlight, muted }: Emai
           <StatusBadge status={email.status} />
         </div>
 
-        {/* Subject */}
         <input
           type="text"
           value={editSubject}
@@ -77,14 +100,12 @@ export default function EmailPreview({ email, onUpdate, highlight, muted }: Emai
           placeholder="Subject"
         />
 
-        {/* To line (read-only) */}
         <p className="text-xs text-brand-muted mt-2">
           To: {email.to_email}
           {email.school && ` · ${email.school}`}
           {email.sport && ` · ${email.sport}`}
         </p>
 
-        {/* Body */}
         <textarea
           value={editBody}
           onChange={e => setEditBody(e.target.value)}
@@ -96,7 +117,6 @@ export default function EmailPreview({ email, onUpdate, highlight, muted }: Emai
           placeholder="Email body"
         />
 
-        {/* Edit actions */}
         <div className="flex gap-2 mt-3 pt-3 border-t border-brand-dark/5">
           <button
             onClick={handleSave}
@@ -117,7 +137,6 @@ export default function EmailPreview({ email, onUpdate, highlight, muted }: Emai
           </button>
         </div>
 
-        {/* Meta */}
         <div className="flex items-center gap-3 mt-2 text-xs text-brand-muted/70">
           {email.game_date && <span>Game: {email.game_date}</span>}
           {email.created && <span>Created: {new Date(email.created).toLocaleDateString()}</span>}
@@ -143,11 +162,19 @@ export default function EmailPreview({ email, onUpdate, highlight, muted }: Emai
               To: {email.to_email || '(unknown)'}
               {email.sport && ` · ${email.sport}`}
             </p>
-            {/* Response date indicator */}
+            {/* Response info */}
             {email.response_date && (
-              <p className="text-xs text-status-responded font-medium mt-0.5">
-                Replied {formatMetaDate(email.response_date)}
-              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs text-status-responded font-medium">
+                  Replied {formatMetaDate(email.response_date)}
+                </span>
+                {email.response_type && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium border
+                                    ${RESPONSE_TYPE_STYLES[email.response_type] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                    {email.response_type}
+                  </span>
+                )}
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -160,17 +187,64 @@ export default function EmailPreview({ email, onUpdate, highlight, muted }: Emai
           </div>
         </div>
 
-        {/* Collapsed preview — just first 2 lines */}
+        {/* Collapsed preview */}
         {!expanded && (
-          <p className="text-xs text-brand-muted mt-1.5 line-clamp-2">
-            {email.body}
-          </p>
+          <>
+            {/* Show response notes snippet if available */}
+            {email.response_notes ? (
+              <p className="text-xs text-brand-dark/70 mt-1.5 line-clamp-2 italic">
+                {email.response_notes}
+              </p>
+            ) : (
+              <p className="text-xs text-brand-muted mt-1.5 line-clamp-2">
+                {email.body}
+              </p>
+            )}
+          </>
         )}
       </button>
 
-      {/* Expanded: full email body */}
+      {/* Expanded: full email body + response details */}
       {expanded && (
         <div className="px-4 pb-4">
+          {/* Response section — shown prominently when there's a reply */}
+          {email.response_received && email.response_notes && (
+            <div className="mb-3 p-3 rounded-lg bg-status-responded/5 border border-status-responded/15">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-status-responded uppercase tracking-wider">
+                  Response
+                </span>
+                {email.response_date && (
+                  <span className="text-xs text-brand-muted">{formatMetaDate(email.response_date)}</span>
+                )}
+              </div>
+              <p className="text-sm text-brand-dark leading-relaxed italic">
+                {email.response_notes}
+              </p>
+
+              {/* Response type selector */}
+              <div className="mt-2 flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
+                <span className="text-xs text-brand-muted">Vibe:</span>
+                {RESPONSE_TYPES.map(type => (
+                  <button
+                    key={type}
+                    onClick={() => handleResponseTypeChange(type)}
+                    disabled={updatingType}
+                    className={`text-xs px-2 py-0.5 rounded-full font-medium border transition-colors
+                                disabled:opacity-50
+                                ${email.response_type === type
+                                  ? RESPONSE_TYPE_STYLES[type]
+                                  : 'bg-white border-brand-dark/10 text-brand-muted hover:border-brand-dark/20'
+                                }`}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Original email body */}
           <div className="text-sm text-brand-dark leading-relaxed whitespace-pre-wrap font-body">
             {email.body}
           </div>
@@ -197,6 +271,29 @@ export default function EmailPreview({ email, onUpdate, highlight, muted }: Emai
                   {approving ? 'Approving...' : 'Approve'}
                 </button>
               )}
+            </div>
+          )}
+
+          {/* Response type selector for responded emails without notes */}
+          {email.status === 'Responded' && !email.response_notes && (
+            <div className="mt-3 pt-3 border-t border-brand-dark/5 flex items-center gap-2 flex-wrap"
+                 onClick={e => e.stopPropagation()}>
+              <span className="text-xs text-brand-muted">Vibe:</span>
+              {RESPONSE_TYPES.map(type => (
+                <button
+                  key={type}
+                  onClick={() => handleResponseTypeChange(type)}
+                  disabled={updatingType}
+                  className={`text-xs px-2 py-0.5 rounded-full font-medium border transition-colors
+                              disabled:opacity-50
+                              ${email.response_type === type
+                                ? RESPONSE_TYPE_STYLES[type]
+                                : 'bg-white border-brand-dark/10 text-brand-muted hover:border-brand-dark/20'
+                              }`}
+                >
+                  {type}
+                </button>
+              ))}
             </div>
           )}
 

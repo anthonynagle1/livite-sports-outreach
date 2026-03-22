@@ -233,6 +233,9 @@ def extract_email_queue_props(page):
         'gmail_thread_id': extract_rich_text(props.get('Gmail Thread ID', {})),
         'gmail_message_id': extract_rich_text(props.get('Gmail Message ID', {})),
         'response_date': extract_date(props.get('Response Date', {})),
+        'response_type': extract_select(props.get('Response Type', {})),
+        'response_notes': extract_rich_text(props.get('Response Notes', {})),
+        'response_received': extract_checkbox(props.get('Response Received', {})),
         'created': page.get('created_time', ''),
     }
 

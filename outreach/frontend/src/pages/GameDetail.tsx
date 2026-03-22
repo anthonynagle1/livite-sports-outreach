@@ -500,6 +500,15 @@ function ThreadCard({ messages, expanded, onToggle, muted = false }: {
   const hasReplies = messages.length > 1
   const latestStatus = messages[messages.length - 1]?.status ?? first.status
   const anyResponse = messages.some(m => m.response_date)
+  const responseType = messages.find(m => m.response_type)?.response_type
+
+  const responseTypeStyles: Record<string, string> = {
+    'Interested': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    'Booked': 'bg-status-booked/15 text-status-booked border-status-booked/30',
+    'Not Interested': 'bg-status-declined/15 text-status-declined border-status-declined/30',
+    'Question': 'bg-amber-50 text-amber-700 border-amber-200',
+    'Out of Office': 'bg-gray-100 text-gray-500 border-gray-200',
+  }
 
   return (
     <div className={`bg-white rounded-xl border border-brand-dark/5
@@ -527,6 +536,12 @@ function ThreadCard({ messages, expanded, onToggle, muted = false }: {
                 Replied
               </span>
             )}
+            {responseType && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium border
+                                ${responseTypeStyles[responseType] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                {responseType}
+              </span>
+            )}
             <svg className={`w-4 h-4 text-brand-muted transition-transform ${
               expanded ? 'rotate-180' : ''
             }`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -541,7 +556,7 @@ function ThreadCard({ messages, expanded, onToggle, muted = false }: {
         <div className="border-t border-brand-dark/5">
           {messages.map((msg, i) => (
             <div key={msg.id} className={`px-4 py-3 ${i > 0 ? 'border-t border-brand-dark/5' : ''}`}>
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span className="text-xs font-medium text-brand-dark">
                   {msg.to_email === first.to_email ? 'Meire' : msg.to_email}
                 </span>
@@ -554,7 +569,26 @@ function ThreadCard({ messages, expanded, onToggle, muted = false }: {
                     Replied {formatDate(msg.response_date)}
                   </span>
                 )}
+                {msg.response_type && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium border
+                                    ${responseTypeStyles[msg.response_type] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                    {msg.response_type}
+                  </span>
+                )}
               </div>
+
+              {/* Response notes — the actual reply text */}
+              {msg.response_notes && (
+                <div className="mb-2 p-2.5 rounded-lg bg-status-responded/5 border border-status-responded/15">
+                  <p className="text-xs font-semibold text-status-responded uppercase tracking-wider mb-1">
+                    Their Reply
+                  </p>
+                  <p className="text-sm text-brand-dark leading-relaxed italic">
+                    {msg.response_notes}
+                  </p>
+                </div>
+              )}
+
               <div className="text-sm text-brand-dark whitespace-pre-wrap leading-relaxed">
                 {msg.body || '(no body)'}
               </div>
