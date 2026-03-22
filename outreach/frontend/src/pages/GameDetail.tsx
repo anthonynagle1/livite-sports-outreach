@@ -551,47 +551,56 @@ function ThreadCard({ messages, expanded, onToggle, muted = false }: {
         </div>
       </button>
 
-      {/* Expanded: show all messages in thread */}
+      {/* Expanded: chat bubble layout */}
       {expanded && (
-        <div className="border-t border-brand-dark/5">
-          {messages.map((msg, i) => (
-            <div key={msg.id} className={`px-4 py-3 ${i > 0 ? 'border-t border-brand-dark/5' : ''}`}>
-              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                <span className="text-xs font-medium text-brand-dark">
-                  {msg.to_email === first.to_email ? 'Meire' : msg.to_email}
-                </span>
-                {msg.sent_at && (
-                  <span className="text-xs text-brand-muted">{formatDate(msg.sent_at)}</span>
-                )}
-                <StatusBadge status={msg.status} />
-                {msg.response_date && (
-                  <span className="text-xs text-status-responded font-medium">
-                    Replied {formatDate(msg.response_date)}
-                  </span>
-                )}
-                {msg.response_type && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium border
-                                    ${responseTypeStyles[msg.response_type] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>
-                    {msg.response_type}
-                  </span>
-                )}
+        <div className="border-t border-brand-dark/5 p-4 space-y-3 bg-brand-cream/10">
+          {messages.map((msg) => (
+            <div key={msg.id}>
+              {/* Outbound message — right side (Meire's email) */}
+              <div className="flex justify-end">
+                <div className="max-w-[85%]">
+                  <div className="bg-brand-sage/10 border border-brand-sage/15 rounded-2xl rounded-br-md px-4 py-3">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-xs font-semibold text-brand-sage">Meire</span>
+                      {msg.sent_at && (
+                        <span className="text-[10px] text-brand-muted">{formatDate(msg.sent_at)}</span>
+                      )}
+                      <StatusBadge status={msg.status} />
+                    </div>
+                    <p className="text-sm text-brand-dark whitespace-pre-wrap leading-relaxed">
+                      {msg.body || '(no body)'}
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              {/* Response notes — the actual reply text */}
+              {/* Inbound reply — left side (their response) */}
               {msg.response_notes && (
-                <div className="mb-2 p-2.5 rounded-lg bg-status-responded/5 border border-status-responded/15">
-                  <p className="text-xs font-semibold text-status-responded uppercase tracking-wider mb-1">
-                    Their Reply
-                  </p>
-                  <p className="text-sm text-brand-dark leading-relaxed italic">
-                    {msg.response_notes}
-                  </p>
+                <div className="flex justify-start mt-2">
+                  <div className="max-w-[85%]">
+                    <div className="bg-white border border-brand-dark/10 rounded-2xl rounded-bl-md px-4 py-3
+                                    shadow-[0_1px_2px_rgba(71,84,23,0.06)]">
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <span className="text-xs font-semibold text-brand-dark">
+                          {first?.to_email?.split('@')[0] || 'Coach'}
+                        </span>
+                        {msg.response_date && (
+                          <span className="text-[10px] text-brand-muted">{formatDate(msg.response_date)}</span>
+                        )}
+                        {msg.response_type && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border
+                                            ${responseTypeStyles[msg.response_type] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                            {msg.response_type}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-brand-dark leading-relaxed">
+                        {msg.response_notes}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
-
-              <div className="text-sm text-brand-dark whitespace-pre-wrap leading-relaxed">
-                {msg.body || '(no body)'}
-              </div>
             </div>
           ))}
         </div>

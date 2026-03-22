@@ -5,7 +5,8 @@ import logging
 from flask import Blueprint, jsonify, request
 
 from .auth import login_required
-from ..lib.cache import cache_get, cache_set, cache_clear
+import threading
+from ..lib.cache import cache_get, cache_set, cache_clear, needs_refresh, invalidate_contact
 from ..lib.notion import (
     get_client, get_db_id, paginated_query,
     extract_email_queue_props, extract_select,
@@ -15,19 +16,12 @@ logger = logging.getLogger(__name__)
 
 bp = Blueprint('emails', __name__)
 
-CACHE_TTL = 60  # 1 minute
+CACHE_TTL = 300      # 5 minutes fresh
+STALE_TTL = 1800     # 30 minutes stale-servable
 
 
-@bp.route('/api/emails')
-@login_required
-def list_emails():
-    """List email queue entries, filterable by status."""
-    status_filter = request.args.get('status')
-    cache_key = f'emails:{status_filter or "all"}'
-    cached = cache_get(cache_key, CACHE_TTL)
-    if cached is not None:
-        return jsonify(cached)
-
+def _fetch_emails(cache_key, status_filter):
+    """Fetch emails from Notion and populate cache."""
     email_db = get_db_id('email_queue')
 
     kwargs = {
@@ -45,6 +39,25 @@ def list_emails():
 
     result = {'emails': emails, 'count': len(emails)}
     cache_set(cache_key, result)
+    return result
+
+
+@bp.route('/api/emails')
+@login_required
+def list_emails():
+    """List email queue entries. Serves stale data instantly while refreshing."""
+    status_filter = request.args.get('status')
+    cache_key = f'emails:{status_filter or "all"}'
+    cached, is_stale = cache_get(cache_key, CACHE_TTL, STALE_TTL)
+
+    if cached is not None:
+        if is_stale and needs_refresh(cache_key):
+            threading.Thread(
+                target=_fetch_emails, args=(cache_key, status_filter), daemon=True
+            ).start()
+        return jsonify(cached)
+
+    result = _fetch_emails(cache_key, status_filter)
     return jsonify(result)
 
 
@@ -195,6 +208,9 @@ def update_response_type(email_id):
                 logger.warning('Failed to update contact response type: %s', e)
 
         cache_clear()
+        # Invalidate persistent contact cache so list views pick up the new response type
+        if contact_ids:
+            invalidate_contact(contact_ids[0])
         return jsonify({'ok': True, 'response_type': response_type})
     except Exception as e:
         logger.error('Failed to update response type for %s: %s', email_id, e)

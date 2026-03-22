@@ -264,6 +264,24 @@ def resolve_contact_summary(contact_id):
         return {'id': contact_id, 'name': '', 'email': '', 'title': ''}
 
 
+def resolve_contact_summary_with_response(contact_id):
+    """Lightweight contact summary with response type — used for list views."""
+    try:
+        page = get_client().pages.retrieve(page_id=contact_id)
+        props = page['properties']
+        return {
+            'id': contact_id,
+            'name': extract_title(props.get('Name', {}).get('title', [])),
+            'email': extract_email(props.get('Email', {})),
+            'title': extract_rich_text(props.get('Title', {})),
+            'last_response_type': extract_select(props.get('Last Response Type', {})),
+            'relationship': extract_select(props.get('Relationship', {})),
+            'do_not_contact': extract_checkbox(props.get('Do Not Contact', {})),
+        }
+    except Exception:
+        return {'id': contact_id, 'name': '', 'email': '', 'title': '', 'last_response_type': '', 'relationship': '', 'do_not_contact': False}
+
+
 def resolve_contact_full(contact_id):
     """Fetch full contact details including response tracking fields."""
     try:

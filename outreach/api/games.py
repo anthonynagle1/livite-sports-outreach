@@ -4,8 +4,10 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
+import threading
+
 from .auth import login_required
-from ..lib.cache import cache_get, cache_set, cache_clear
+from ..lib.cache import cache_get, cache_set, cache_clear, needs_refresh, get_school_name, get_contact_summary, invalidate_contact
 from ..lib.notion import (
     get_client, get_db_id, paginated_query,
     extract_game_props, resolve_school_name, resolve_contact_summary,
@@ -19,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 bp = Blueprint('games', __name__)
 
-CACHE_TTL = 120  # 2 minutes
+CACHE_TTL = 600      # 10 minutes fresh
+STALE_TTL = 1800     # 30 minutes stale-servable
 
 
 def _build_filter(args):
@@ -63,17 +66,10 @@ def _build_filter(args):
     return {'and': conditions}
 
 
-@bp.route('/api/games')
-@login_required
-def list_games():
-    """List games with optional filters. Returns enriched game data with playing-later annotations."""
-    cache_key = f'games:{request.query_string.decode()}'
-    cached = cache_get(cache_key, CACHE_TTL)
-    if cached is not None:
-        return jsonify(cached)
-
+def _fetch_games(cache_key, args_dict):
+    """Fetch games from Notion and populate cache. Used for both sync and background refresh."""
     games_db = get_db_id('games')
-    notion_filter = _build_filter(request.args)
+    notion_filter = _build_filter(args_dict)
 
     kwargs = {
         'sorts': [{'property': 'Game Date', 'direction': 'ascending'}],
@@ -84,14 +80,19 @@ def list_games():
     pages = paginated_query(games_db, **kwargs)
     games = [extract_game_props(p) for p in pages]
 
-    # Batch resolve school names for home teams
-    school_cache = {}
+    # Batch resolve school names using persistent cache
     for g in games:
-        for sid in g.get('home_team_ids', []):
-            if sid not in school_cache:
-                school_cache[sid] = resolve_school_name(sid)
-        g['home_school'] = school_cache.get(
-            g['home_team_ids'][0], '') if g.get('home_team_ids') else ''
+        if g.get('home_team_ids'):
+            g['home_school'] = get_school_name(g['home_team_ids'][0])
+        else:
+            g['home_school'] = ''
+
+    # Resolve contact summaries using persistent cache
+    for g in games:
+        if g.get('contact_ids'):
+            g['contact'] = get_contact_summary(g['contact_ids'][0])
+        else:
+            g['contact'] = None
 
     # Batch annotate playing-later
     games = batch_annotate_playing_later(games)
@@ -102,6 +103,27 @@ def list_games():
 
     result = {'games': games, 'count': len(games)}
     cache_set(cache_key, result)
+    return result
+
+
+@bp.route('/api/games')
+@login_required
+def list_games():
+    """List games with optional filters. Serves stale data instantly while refreshing."""
+    cache_key = f'games:{request.query_string.decode()}'
+    cached, is_stale = cache_get(cache_key, CACHE_TTL, STALE_TTL)
+
+    if cached is not None:
+        if is_stale and needs_refresh(cache_key):
+            # Serve stale data now, refresh in background
+            args_copy = dict(request.args)
+            threading.Thread(
+                target=_fetch_games, args=(cache_key, args_copy), daemon=True
+            ).start()
+        return jsonify(cached)
+
+    # No cache at all — must fetch synchronously
+    result = _fetch_games(cache_key, dict(request.args))
     return jsonify(result)
 
 

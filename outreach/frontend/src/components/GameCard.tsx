@@ -62,6 +62,11 @@ export default function GameCard({ game, compact = false, selectable, selected, 
             </p>
           )}
 
+          {/* Contact name */}
+          {game.contact?.name && (
+            <p className="text-xs text-brand-sage mt-0.5">{game.contact.name}</p>
+          )}
+
           {/* Recommendation */}
           {game.recommendation && (
             <p className="text-xs text-brand-sage font-medium mt-1.5">
@@ -70,9 +75,26 @@ export default function GameCard({ game, compact = false, selectable, selected, 
           )}
         </div>
 
-        {/* Right side: status + lead score */}
+        {/* Right side: status + response tag + lead score */}
         <div className="flex flex-col items-end gap-1.5 shrink-0">
           <StatusBadge status={game.outreach_status || 'Not Contacted'} />
+          {game.contact?.last_response_type && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border leading-none ${
+              game.contact.last_response_type === 'Interested'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : game.contact.last_response_type === 'Booked'
+                ? 'bg-status-booked/15 text-status-booked border-status-booked/30'
+                : game.contact.last_response_type === 'Not Interested'
+                ? 'bg-status-declined/15 text-status-declined border-status-declined/30'
+                : game.contact.last_response_type === 'Question'
+                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                : game.contact.last_response_type === 'Out of Office'
+                ? 'bg-gray-100 text-gray-500 border-gray-200'
+                : 'bg-gray-100 text-gray-500 border-gray-200'
+            }`}>
+              {game.contact.last_response_type}
+            </span>
+          )}
           {game.lead_score != null && (
             <span className={`text-xs font-semibold tabular-nums ${
               game.lead_score >= 80 ? 'text-status-booked' :
