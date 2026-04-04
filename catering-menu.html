@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Livite Catering Menu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --olive: #4A5E2A;
+    --forest: #2D3A1A;
+    --wheat: #C8A96E;
+    --cream: #F5F0E8;
+    --sage: #E8EDE2;
+    --warm-gray: #5A5A4A;
+    --muted-sage: #7A8A5A;
+    --serif: 'Playfair Display', Georgia, serif;
+    --sans: 'DM Sans', 'Helvetica Neue', sans-serif;
+    --page-w: 11in;
+    --page-h: 8.5in;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #2a2a28;
+    font-family: var(--sans);
+    color: var(--forest);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 40px;
+    padding: 40px 20px 80px;
+  }
+
+  /* Page counter */
+  .page-nav {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(45,58,26,0.9);
+    color: #fff;
+    font-family: var(--sans);
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: 20px;
+    z-index: 100;
+    letter-spacing: 0.05em;
+    backdrop-filter: blur(8px);
+  }
+
+  /* Page shell */
+  .page {
+    width: var(--page-w);
+    height: var(--page-h);
+    background: var(--cream);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.35), 0 1px 8px rgba(0,0,0,0.2);
+  }
+
+  /* Subtle paper grain texture via SVG */
+  .page::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .page > * { position: relative; z-index: 2; }
+
+  /* Footer on text pages */
+  .page-footer {
+    position: absolute;
+    bottom: 32px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: var(--sans);
+    font-size: 9pt;
+    color: var(--olive);
+    letter-spacing: 0.15em;
+    z-index: 2;
+  }
+  .page-number {
+    position: absolute;
+    bottom: 16px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: var(--sans);
+    font-size: 8pt;
+    color: var(--muted-sage);
+    z-index: 2;
+  }
+
+  /* ═══════════════════════════════════════
+     PHOTO DIVIDER PAGES
+     ═══════════════════════════════════════ */
+  .page-photo {
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    align-items: flex-end;
+    padding: 0;
+  }
+  .page-photo .inset-border {
+    position: absolute;
+    inset: 20px;
+    border: 1.5px solid rgba(255,255,255,0.4);
+    border-radius: 2px;
+    pointer-events: none;
+  }
+  .page-photo .section-label {
+    margin: 0 0 40px 40px;
+    background: rgba(74, 94, 42, 0.9);
+    padding: 24px 36px;
+    border-radius: 12px;
+    display: inline-block;
+  }
+  .page-photo .section-label .brand {
+    font-family: var(--sans);
+    color: #fff;
+    font-size: 10pt;
+    letter-spacing: 0.15em;
+    font-weight: 500;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .page-photo .section-label .title {
+    font-family: var(--serif);
+    color: #fff;
+    font-size: 36pt;
+    font-weight: 400;
+    line-height: 1.1;
+  }
+
+  /* Photo placeholder styling */
+  .photo-note {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--sans);
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    text-align: center;
+    letter-spacing: 0.05em;
+    max-width: 300px;
+    line-height: 1.5;
+  }
+  .photo-note .icon { font-size: 28px; display: block; margin-bottom: 8px; }
+
+  /* ═══════════════════════════════════════
+     TEXT PAGE COMPONENTS
+     ═══════════════════════════════════════ */
+
+  /* Section header with flanking rules */
+  .section-header {
+    text-align: center;
+    padding: 0 60px;
+    margin-bottom: 8px;
+  }
+  .section-header h2 {
+    font-family: var(--serif);
+    font-size: 24pt;
+    font-weight: 400;
+    color: var(--olive);
+    letter-spacing: 0.15em;
+    display: inline-block;
+    position: relative;
+    padding: 0 24px;
+  }
+  .section-header h2::before,
+  .section-header h2::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 80px;
+    height: 1px;
+    background: var(--wheat);
+  }
+  .section-header h2::before { right: 100%; }
+  .section-header h2::after { left: 100%; }
+
+  /* Section intro */
+  .section-intro {
+    text-align: center;
+    font-family: var(--sans);
+    font-style: italic;
+    font-size: 11.5pt;
+    color: var(--warm-gray);
+    padding: 0 80px;
+    margin-bottom: 24px;
+    line-height: 1.6;
+  }
+
+  /* Two column layout */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    padding: 0 60px;
+  }
+
+  /* Sub-section header */
+  .sub-header {
+    font-family: var(--sans);
+    font-size: 13pt;
+    font-weight: 700;
+    color: var(--olive);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    padding-top: 4px;
+    border-top: 2px solid var(--olive);
+    display: inline-block;
+  }
+  /* leaf class removed — no emoji */
+
+  .sub-note {
+    font-family: var(--sans);
+    font-size: 10pt;
+    color: var(--warm-gray);
+    font-style: italic;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+
+  .base-price {
+    font-family: var(--sans);
+    font-size: 11pt;
+    font-weight: 500;
+    color: var(--wheat);
+    margin-bottom: 16px;
+  }
+
+  /* Menu item */
+  .menu-item {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 0.5px solid rgba(200, 169, 110, 0.3);
+  }
+  .menu-item:last-child { border-bottom: none; }
+  .menu-item .name {
+    font-family: var(--sans);
+    font-size: 11pt;
+    font-weight: 700;
+    color: var(--forest);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 1px;
+  }
+  .menu-item .desc {
+    font-family: var(--sans);
+    font-size: 9.5pt;
+    font-weight: 400;
+    color: var(--warm-gray);
+    line-height: 1.4;
+    margin-bottom: 1px;
+  }
+  .menu-item .price {
+    font-family: var(--sans);
+    font-size: 10pt;
+    font-weight: 500;
+    color: var(--wheat);
+    margin-bottom: 1px;
+  }
+  .menu-item .gf-note {
+    font-family: var(--sans);
+    font-size: 8.5pt;
+    font-weight: 500;
+    color: var(--muted-sage);
+    font-style: italic;
+  }
+  .menu-item .allergens {
+    font-family: var(--sans);
+    font-size: 7pt;
+    font-weight: 600;
+    color: var(--muted-sage);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 1px;
+  }
+
+  /* Callout box */
+  .callout-box {
+    background: var(--sage);
+    border: 1.5px solid var(--olive);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+  }
+  .callout-box .callout-title {
+    font-family: var(--serif);
+    font-size: 20pt;
+    color: var(--olive);
+    margin-bottom: 4px;
+  }
+  .callout-box .callout-price {
+    font-family: var(--sans);
+    font-size: 18pt;
+    font-weight: 500;
+    color: var(--wheat);
+    margin-bottom: 8px;
+  }
+  .callout-box .callout-text {
+    font-family: var(--sans);
+    font-size: 10.5pt;
+    color: var(--warm-gray);
+    line-height: 1.7;
+  }
+  .callout-box ul {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0;
+  }
+  .callout-box ul li {
+    font-family: var(--sans);
+    font-size: 10.5pt;
+    color: var(--forest);
+    padding: 2px 0 2px 18px;
+    position: relative;
+  }
+  .callout-box ul li::before {
+    content: '●';
+    color: var(--olive);
+    position: absolute;
+    left: 0;
+    font-size: 7pt;
+    top: 5px;
+  }
+
+  /* FAQ style */
+  .faq-item { margin-bottom: 16px; }
+  .faq-item .question {
+    font-family: var(--sans);
+    font-size: 11pt;
+    font-weight: 700;
+    color: var(--olive);
+    margin-bottom: 4px;
+    padding-left: 14px;
+    position: relative;
+  }
+  .faq-item .question::before {
+    content: '●';
+    color: var(--wheat);
+    position: absolute;
+    left: 0;
+    font-size: 7pt;
+    top: 4px;
+  }
+  .faq-item .answer {
+    font-family: var(--sans);
+    font-size: 10.5pt;
+    color: var(--warm-gray);
+    line-height: 1.6;
+    padding-left: 14px;
+  }
+
+  /* Tag styles */
+  .tag {
+    font-family: var(--sans);
+    font-size: 8pt;
+    font-weight: 600;
+    color: var(--muted-sage);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Logo */
+  .logo-olive { width: 200px; }
+  .logo-white { width: 180px; filter: brightness(0) invert(1); }
+
+  /* Dense smoothie page */
+  #smoothie-grid .menu-item {
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+  }
+
+  /* Print styles */
+  @media print {
+    body { background: none; padding: 0; gap: 0; }
+    .page { box-shadow: none; page-break-after: always; }
+    .page:last-child { page-break-after: avoid; }
+    .page-nav { display: none; }
+    @page { size: 11in 8.5in; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-nav" id="pageNav">Page 1 of 20</div>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 1 — COVER
+     ═════════════════════════════════════════════════════════ -->
+<section class="page page-photo" style="background-image: linear-gradient(to bottom, rgba(45,58,26,0.25) 0%, rgba(45,58,26,0.55) 100%), url('/menu-photos/cover.jpg');" id="page-1">
+  <div class="inset-border" style="display:none;"></div>
+  <div class="section-label" style="margin-bottom: 60px; padding: 28px 40px;">
+    <img src="/web/public/logo.png" class="logo-white" alt="Livite" style="width: 220px; margin-bottom: 8px;">
+    <span class="title" style="font-style: italic; font-size: 28pt; display: block;">Catering Menu</span>
+  </div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 2 — TITLE PAGE
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-2" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+  <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+    <img src="/web/public/logo.png" class="logo-olive" alt="Livite" style="margin-bottom: 32px;">
+    <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 60px;">
+      <div style="width: 120px; height: 1px; background: var(--wheat);"></div>
+      <span style="font-family: var(--serif); font-size: 18pt; color: var(--olive); letter-spacing: 0.2em;">CATERING</span>
+      <div style="width: 120px; height: 1px; background: var(--wheat);"></div>
+    </div>
+    <div style="font-family: var(--sans); font-size: 10pt; color: var(--olive); line-height: 2.2; letter-spacing: 0.04em;">
+      AVAILABLE FOR PICKUP &amp; DELIVERY<br>
+      ORDER ONLINE OR BY EMAIL<br><br>
+      <span style="font-weight: 500;">catering@livite.com</span><br>
+      <span style="font-weight: 500;">(617) 396-8383</span>
+    </div>
+  </div>
+  <div class="page-number">2</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 3 — FROM OUR FAMILY TO YOURS
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-3" style="display: grid; grid-template-columns: 45% 55%; padding: 60px;">
+  <!-- Photo column -->
+  <div style="display: flex; align-items: center; justify-content: center; padding-right: 32px;">
+    <div style="width: 100%; aspect-ratio: 3/4; border-radius: 8px; box-shadow: 0 4px 20px rgba(74,94,42,0.08); overflow: hidden;">
+      <img src="/menu-photos/family.jpg" alt="The Livite Family" style="width: 100%; height: 100%; object-fit: cover;">
+    </div>
+  </div>
+  <!-- Text column -->
+  <div style="display: flex; flex-direction: column; justify-content: center;">
+    <h2 style="font-family: var(--serif); font-size: 28pt; color: var(--olive); font-style: italic; font-weight: 400; margin-bottom: 20px; line-height: 1.2;">From our family<br>to yours</h2>
+    <p style="font-family: var(--sans); font-size: 11pt; color: var(--warm-gray); line-height: 1.8; margin-bottom: 16px;">Livite was founded by Laurie and Steve with one simple goal: to create a place where food feels good — for your body, your lifestyle, and your community.</p>
+    <p style="font-family: var(--sans); font-size: 11pt; color: var(--warm-gray); line-height: 1.8; margin-bottom: 16px;">Laurie, a registered dietitian, brings a deep understanding of balanced, wholesome eating. Steve, with over 20 years in the restaurant industry, brings a passion for hospitality, thoughtful menus, and food done right.</p>
+    <p style="font-family: var(--sans); font-size: 11pt; color: var(--warm-gray); line-height: 1.8; margin-bottom: 24px;">Every menu is crafted with balance in mind — fresh, flavorful, and designed to fit real life. When you order Livite catering, you're getting the same care we put into every plate at our counter, scaled for your team.</p>
+    <p style="font-family: var(--sans); font-size: 11pt; color: var(--olive); font-weight: 500;">—The Livite Family</p>
+  </div>
+  <div class="page-footer" style="grid-column: 1 / -1;">LIVITE</div>
+  <div class="page-number" style="grid-column: 1 / -1;">3</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 4 — BREAKFAST DIVIDER
+     ═════════════════════════════════════════════════════════ -->
+<section class="page page-photo" style="background-image: linear-gradient(to bottom, rgba(45,58,26,0.15) 0%, rgba(45,58,26,0.5) 100%), url('/menu-photos/breakfast.jpg'); background-size: cover; background-position: center;" id="page-4">
+  <div class="inset-border"></div>
+  <div class="section-label">
+    <span class="brand">LIVITE</span>
+    <span class="title">BREAKFAST</span>
+  </div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 5 — BREAKFAST MENU
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-5" style="padding: 32px 0 50px;">
+  <div class="section-header" style="margin-bottom: 6px;">
+    <h2>BREAKFAST FOR THE GROUP</h2>
+  </div>
+  <p class="section-intro">An easy, crowd-pleasing breakfast prepared fresh daily. Ideal for meetings and catered events.</p>
+  <div class="two-col">
+    <!-- Column 1: Burritos -->
+    <div>
+      <div class="sub-header">BREAKFAST BURRITOS</div>
+      <p class="sub-note">All burritos are individually wrapped. 8-person minimum.</p>
+      <p class="base-price">$12 per person · GF +$1</p>
+
+      <div class="menu-item">
+        <div class="name">Classic Sausage</div>
+        <div class="desc">Scrambled eggs, mozzarella, breakfast potatoes, breakfast sausage, avocado-cilantro spread</div>
+        <div class="allergens">Contains: Dairy, Eggs, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Classic Bacon</div>
+        <div class="desc">Scrambled eggs, mozzarella, breakfast potatoes, bacon, avocado-cilantro spread</div>
+        <div class="allergens">Contains: Dairy, Eggs, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Chipotle Sausage</div>
+        <div class="desc">Scrambled eggs, mozzarella, breakfast potatoes, breakfast sausage, chipotle mayo</div>
+        <div class="allergens">Contains: Dairy, Eggs, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Livite Vegetarian <span class="tag">(V)</span></div>
+        <div class="desc">Scrambled eggs, mozzarella, breakfast potatoes, black beans, guacamole</div>
+        <div class="allergens">Contains: Dairy, Eggs, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Livite Vegan <span class="tag">(VG)</span></div>
+        <div class="desc">Tofu scrambled, breakfast potatoes, black beans, guacamole</div>
+        <div class="allergens">Contains: Soy, Wheat</div>
+      </div>
+    </div>
+
+    <!-- Column 2: Pastries -->
+    <div>
+      <div class="sub-header">PASTRY BOXES</div>
+      <p class="sub-note">Choose your mix, or let us curate an assortment.</p>
+
+      <div class="menu-item">
+        <div class="name">Classic Pastry Box</div>
+        <div class="desc">12 assorted pastries</div>
+        <div class="price">$45</div>
+        <div class="allergens">Contains: Dairy, Eggs, Wheat, Tree Nuts (varies by selection)</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Executive Pastry Box</div>
+        <div class="desc">18 assorted pastries</div>
+        <div class="price">$65</div>
+        <div class="allergens">Contains: Dairy, Eggs, Wheat, Tree Nuts (varies by selection)</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Savory Pastry Box</div>
+        <div class="desc">12 assorted savory pastries — (2) ham &amp; cheese croissant, (2) everything croissant, (2) spinach &amp; ricotta, (2) broccoli, feta &amp; ricotta</div>
+        <div class="price">$48</div>
+        <div class="allergens">Contains: Dairy, Eggs, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Tea Bread Loaf</div>
+        <div class="desc">Banana walnut, blueberry, coffee cake, lemon poppyseed, pumpkin, marble</div>
+        <div class="price">$28</div>
+        <div class="allergens">Contains: Dairy, Eggs, Wheat, Tree Nuts (varies)</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">5</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 6 — BREAKFAST: SNACKS, COFFEE & JUICE
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-6" style="display: flex; flex-direction: column; justify-content: center; padding: 48px 0 50px;">
+  <div class="section-header" style="margin-bottom: 6px;">
+    <h2>MORNING FAVORITES</h2>
+  </div>
+  <p class="section-intro">Light bites and beverages to complement your breakfast spread.</p>
+
+  <div class="two-col" style="padding-top: 8px;">
+    <!-- Column 1: Morning Snacks -->
+    <div>
+      <div class="sub-header">MORNING SNACKS</div>
+      <div style="height: 12px;"></div>
+
+      <div class="menu-item">
+        <div class="name">Overnight Oats</div>
+        <div class="desc">Gluten-free oats, chia seeds, maple syrup, coconut milk, strawberries, blueberries, GF granola, sliced almonds</div>
+        <div class="price">$6.50</div>
+        <div class="allergens">Contains: Coconut, Tree Nuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Yogurt Parfait</div>
+        <div class="desc">Vanilla Greek yogurt, strawberries, blueberries, almonds, cinnamon granola</div>
+        <div class="price">$6.50</div>
+        <div class="allergens">Contains: Dairy, Tree Nuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Mixed Fruit Cup</div>
+        <div class="desc">A mix of fresh, seasonal fruits</div>
+        <div class="price">$6.50</div>
+      </div>
+    </div>
+
+    <!-- Column 2: Coffee, Tea -->
+    <div>
+      <div class="sub-header">COFFEE &amp; TEA</div>
+      <div style="height: 12px;"></div>
+
+      <div class="menu-item">
+        <div class="name">Fresh Brewed Coffee</div>
+        <div class="desc">96 oz box · Serves 12. Includes cups, milk, and sugar</div>
+        <div class="price">$30</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Box of Hot Water &amp; Assorted Teas</div>
+        <div class="desc">96 oz box with 10 assorted tea bags · Serves 12. Includes cups, milk, and sugar</div>
+        <div class="price">$20</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Cold Brew Coffee</div>
+        <div class="desc">32 oz bottle · Serves 4–5. Includes cups, milk, and sugar</div>
+        <div class="price">$18</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">6</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 7 — LUNCH DIVIDER
+     ═════════════════════════════════════════════════════════ -->
+<section class="page page-photo" style="background-image: linear-gradient(to bottom, rgba(45,58,26,0.15) 0%, rgba(45,58,26,0.45) 100%), url('/menu-photos/backcover.jpg'); background-size: 140%; background-position: center 30%;" id="page-7">
+  <div class="inset-border"></div>
+  <div class="section-label">
+    <span class="brand">LIVITE</span>
+    <span class="title">LUNCH</span>
+  </div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 8 — LUNCH FOR THE GROUP
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-8" style="display: flex; flex-direction: column; justify-content: center; padding: 60px 0;">
+  <div class="section-header" style="margin-bottom: 6px;">
+    <h2>LUNCH FOR THE GROUP</h2>
+  </div>
+  <p class="section-intro">Freshly prepared wraps ideal for meetings and catered events.</p>
+
+  <div style="padding: 0 60px;">
+    <!-- Wrap Boxes — lead offering -->
+    <div class="sub-header">WRAP BOXES MADE EASY</div>
+    <p class="sub-note">All wraps individually prepared as halves, accompanied by plantain chips. Choose any wrap from our menu.</p>
+
+    <div class="menu-item">
+      <div class="name">Livite Classic Wrap Variety Box</div>
+      <div class="desc">Our most popular — a selection of Livite's best-selling flavors. 8 wraps (16 halves): (2) Bacon Chicken, (2) Roasted Turkey, (2) Buffalotarian, (2) Caesar · Serves 8–16</div>
+      <div class="price">$110</div>
+    </div>
+    <div class="menu-item" style="margin-top: 12px;">
+      <div class="name">Custom Wrap Box (Small)</div>
+      <div class="desc">Create your own assortment · 8 wraps (16 halves) · Serves 8–16</div>
+      <div class="price">$110</div>
+    </div>
+    <div class="menu-item" style="margin-top: 12px;">
+      <div class="name">Custom Wrap Box (Large)</div>
+      <div class="desc">Create your own assortment · 16 wraps (32 halves) · Serves 16–32</div>
+      <div class="price">$220</div>
+    </div>
+  </div>
+
+  <div style="padding: 0 60px; margin-top: 28px; display: flex; flex-direction: column; align-items: center;">
+    <div class="sub-header">QUESADILLAS &amp; PANINIS</div>
+    <div style="height: 8px;"></div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <div class="menu-item">
+        <div class="name">Livite Classic Quesadilla</div>
+        <div class="desc">Roasted chicken, mozzarella, corn, black beans, pickled jalape&#241;os, avocado cilantro spread</div>
+        <div class="price">$13.75 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Buffalo Chicken Quesadilla</div>
+        <div class="desc">Oven-roasted chicken, mozzarella, buffalo sauce, marinated red onions, blue cheese dressing</div>
+        <div class="price">$13.75 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="menu-item">
+        <div class="name">Caprese Panini <span class="tag">(V)</span></div>
+        <div class="desc">Mozzarella, sliced red tomatoes, fresh basil</div>
+        <div class="price">$10.50 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">8</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 9 — WRAPS: CHICKEN
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-9" style="padding: 32px 0 50px;">
+  <div class="section-header" style="margin-bottom: 4px;">
+    <h2>WRAPS</h2>
+  </div>
+  <p class="section-intro">All wraps are pressed on a panini grill and served with our signature crispy plantain chips. 8-person minimum.</p>
+
+  <div class="two-col">
+    <div>
+      <div class="menu-item">
+        <div class="name">Chipotle Chicken Wrap</div>
+        <div class="desc">Oven-roasted chicken, chipotle mayo, guacamole, pineapple salsa, romaine, and mozzarella</div>
+        <div class="price">$13.95 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Bacon Chicken Wrap</div>
+        <div class="desc">Oven-roasted chicken, applewood smoked bacon, marinated red onions, mozzarella, romaine, avocado cilantro spread</div>
+        <div class="price">$13.95 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Chicken Caesar Wrap</div>
+        <div class="desc">Oven-roasted chicken, romaine, mozzarella, house-made parmesan crisps, caesar dressing</div>
+        <div class="price">$13.75 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat, Egg</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Chicken Pesto Wrap</div>
+        <div class="desc">Oven-roasted chicken, romaine, mozzarella, house-made pesto, sun-dried tomatoes</div>
+        <div class="price">$13.75 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat, Tree Nuts</div>
+      </div>
+    </div>
+    <div>
+      <div class="menu-item">
+        <div class="name">Buffalo Chicken Wrap</div>
+        <div class="desc">Oven-roasted chicken, romaine, mozzarella, marinated red onions, buffalo sauce, blue cheese dressing</div>
+        <div class="price">$13.75 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Greek Chicken Wrap</div>
+        <div class="desc">Oven-roasted chicken, feta, marinated red onions, tomato, cucumber, black olives, organic spinach, herb vinaigrette</div>
+        <div class="price">$13.75 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Roasted Chicken &amp; Corn Wrap</div>
+        <div class="desc">Oven-roasted chicken, romaine, roasted corn, lime, avocado cilantro spread</div>
+        <div class="price">$13.25 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Roasted Turkey Wrap</div>
+        <div class="desc">Roasted turkey, house-made hummus, Granny Smith apples, microgreens, kale, romaine, olive oil</div>
+        <div class="price">$13.95 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Wheat, Sesame</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">9</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 10 — WRAPS: PLANT-FORWARD & QUESADILLAS
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-10" style="display: flex; flex-direction: column; justify-content: center; padding: 40px 0 50px;">
+  <div style="padding: 0 60px; display: flex; flex-direction: column; align-items: center;">
+    <div class="sub-header">PLANT-FORWARD &amp; VEGAN</div>
+    <div style="height: 8px;"></div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <div class="menu-item">
+        <div class="name">Buffalotarian Wrap <span class="tag">(V)</span></div>
+        <div class="desc">Organic farro, chickpeas, avocado, romaine, mozzarella, marinated red onions, buffalo sauce, blue cheese dressing</div>
+        <div class="price">$13.75 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Dairy, Wheat, Gluten (farro)</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Vegan Chickpea Tuna <span class="tag">(VG)</span></div>
+        <div class="desc">Chickpeas, romaine, vegan mayo, diced celery, sliced tomatoes, marinated red onions, Nature's seasoning, lemon juice, dill pickles</div>
+        <div class="price">$13.25 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Jalapeño Crunch Wrap <span class="tag">(VG)</span></div>
+        <div class="desc">Spring mix, avocado, tofu, cucumber, red cabbage, marinated red onions, crushed plantain chips, jalapeño cilantro dressing</div>
+        <div class="price">$13.50 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Soy, Wheat</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="menu-item">
+        <div class="name">Vegan Burrito <span class="tag">(VG)</span></div>
+        <div class="desc">Farro or quinoa, avocado, black beans, roasted corn, grape tomatoes, marinated red onions, cilantro, lime juice, romaine</div>
+        <div class="price">$13.75 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Wheat, Gluten (farro)</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">The Veggie Garden <span class="tag">(V)</span></div>
+        <div class="desc">Avocado, house-made hummus, cucumbers, organic spinach, cubanelle peppers, shredded carrots, sliced tomato</div>
+        <div class="price">$13.75 per person · GF +$1.75</div>
+        <div class="allergens">Contains: Wheat, Sesame</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">10</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 11 — SALADS & BOWLS DIVIDER
+     ═════════════════════════════════════════════════════════ -->
+<section class="page page-photo" style="background-image: linear-gradient(to bottom, rgba(45,58,26,0.2) 0%, rgba(45,58,26,0.5) 100%), url('/menu-photos/salads.jpg');" id="page-11">
+  <div class="inset-border"></div>
+  <div class="section-label">
+    <span class="brand">LIVITE</span>
+    <span class="title">SALADS &amp; BOWLS</span>
+  </div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 12 — SALADS & BOWLS
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-12" style="padding: 32px 0 50px;">
+  <div class="section-header" style="margin-bottom: 4px;">
+    <h2>SALADS &amp; BOWLS</h2>
+  </div>
+  <p class="section-intro">Freshly prepared salads and grain bowls made with organic greens, wholesome ingredients, and house-made dressings. $14.50 per person.</p>
+
+  <div style="padding: 0 60px; margin-bottom: 12px;">
+    <div style="margin-bottom: 0; padding: 14px 24px; background: rgba(200, 169, 110, 0.12); border: 1px solid rgba(200, 169, 110, 0.35); border-radius: 10px;">
+      <div class="callout-title" style="font-size: 14pt;">CATERING SALAD</div>
+      <div class="callout-text">Any salad on our menu, made large format (160 oz) · Serves approximately 20 as a side · <strong>$70</strong></div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <div class="menu-item">
+        <div class="name">Livite House Salad <span class="tag">(GF)</span></div>
+        <div class="desc">Oven-roasted chicken, kale &amp; romaine blend, feta, black olives, cucumbers, marinated red onions, grape tomatoes, cubanelle peppers, house-made herb vinaigrette</div>
+        <div class="allergens">Contains: Dairy</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Chipotle Chicken Salad</div>
+        <div class="desc">Roasted chicken, romaine, guacamole, pineapple salsa, plantains, black beans, roasted corn, chipotle vinaigrette</div>
+        <div class="allergens">Contains: Dairy</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Buffalo Chicken Salad <span class="tag">(GF)</span></div>
+        <div class="desc">Romaine, roasted buffalo chicken, feta, cucumbers, grape tomatoes, marinated onions, blue cheese dressing</div>
+        <div class="allergens">Contains: Dairy</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Berry Berry Avocado Salad <span class="tag">(V · GF)</span></div>
+        <div class="desc">Organic spinach, avocado, sliced strawberries, blueberries, feta cheese, sliced almonds, chia seeds, balsamic vinaigrette</div>
+        <div class="allergens">Contains: Dairy, Tree Nuts</div>
+      </div>
+    </div>
+    <div>
+      <div class="menu-item">
+        <div class="name">The Livite Bowl</div>
+        <div class="desc">Farro or quinoa, oven-roasted chicken, organic kale, feta, grape tomatoes, cubanelle peppers, roasted corn, marinated red onions, house-made herb vinaigrette</div>
+        <div class="gf-note">Gluten-free with quinoa only</div>
+        <div class="allergens">Contains: Dairy, Wheat (farro option)</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Apple Walnut Salad <span class="tag">(V · GF)</span></div>
+        <div class="desc">Spinach &amp; romaine blend, Granny Smith apples, feta, chopped walnuts, dried cranberries, avocado, balsamic vinaigrette</div>
+        <div class="allergens">Contains: Dairy, Tree Nuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Plant-Based Thai Peanut Salad <span class="tag">(VG · GF)</span></div>
+        <div class="desc">Roasted tofu, edamame, quinoa, kale, cilantro, shredded carrots, cucumbers, red cabbage, roasted peanuts, Thai peanut dressing</div>
+        <div class="allergens">Contains: Soy, Peanuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Southwest Vegan Bowl <span class="tag">(VG)</span></div>
+        <div class="desc">Farro or quinoa, organic kale, avocado, grape tomatoes, shredded carrots, roasted chickpeas, black beans, roasted corn, marinated red onions, herb vinaigrette</div>
+        <div class="gf-note">Gluten-free with quinoa only</div>
+        <div class="allergens">Contains: Wheat (farro option)</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">12</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 13 — JUICES & SMOOTHIES DIVIDER
+     ═════════════════════════════════════════════════════════ -->
+<section class="page page-photo" style="background-image: linear-gradient(to bottom, rgba(45,58,26,0.15) 0%, rgba(45,58,26,0.45) 100%), url('/menu-photos/juices.jpg');" id="page-13">
+  <div class="inset-border"></div>
+  <div class="section-label">
+    <span class="brand">LIVITE</span>
+    <span class="title">JUICES &amp; SMOOTHIES</span>
+  </div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 14 — FRESH JUICES
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-14" style="padding: 32px 0 50px;">
+  <div class="section-header" style="margin-bottom: 4px;">
+    <h2>FRESH JUICES</h2>
+  </div>
+  <p class="section-intro">Made fresh using whole fruits and vegetables — perfect for a refreshing and nourishing option.</p>
+  <div class="two-col" style="margin-top: 8px;">
+    <div>
+      <div class="menu-item">
+        <div class="name">Freshly Squeezed Orange Juice</div>
+        <div class="price">8 oz · $7.50 &nbsp;|&nbsp; 16 oz · $9.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Green Healthy Monster</div>
+        <div class="desc">Organic kale, spinach, apple, celery, cucumber, lemon</div>
+        <div class="price">8 oz · $7.50 &nbsp;|&nbsp; 16 oz · $9.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Super Hydrator</div>
+        <div class="desc">Cucumber, green apple, celery, lemon, ginger</div>
+        <div class="price">8 oz · $7.50 &nbsp;|&nbsp; 16 oz · $9.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Cold Buster</div>
+        <div class="desc">Pineapple, orange, lemon, celery, turmeric, ginger</div>
+        <div class="price">8 oz · $7.50 &nbsp;|&nbsp; 16 oz · $9.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">The Cure</div>
+        <div class="desc">Carrot, orange, celery, beet, lemon, ginger</div>
+        <div class="price">8 oz · $7.50 &nbsp;|&nbsp; 16 oz · $9.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Detox</div>
+        <div class="desc">Carrot, orange, pineapple, ginger</div>
+        <div class="price">8 oz · $7.50 &nbsp;|&nbsp; 16 oz · $9.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Busy Beet</div>
+        <div class="desc">Beets, carrots, kale, green apple, ginger</div>
+        <div class="price">8 oz · $7.50 &nbsp;|&nbsp; 16 oz · $9.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Make Your Own Juice</div>
+        <div class="desc">Choose four items for a custom blend</div>
+        <div class="price">$9.75</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sub-header">WELLNESS SHOT</div>
+      <div style="height: 12px;"></div>
+      <div class="menu-item">
+        <div class="name">Extreme Wellness Shot</div>
+        <div class="desc">Ginger, lemon, turmeric, black pepper. 4 oz — ask for cayenne to take it up a notch</div>
+        <div class="price">$4.75</div>
+      </div>
+
+      <div style="height: 16px;"></div>
+      <div class="sub-header">JUICE BUNDLES</div>
+      <div style="height: 12px;"></div>
+
+      <div class="menu-item">
+        <div class="name">Juice Sampler Bundle</div>
+        <div class="desc">6 assorted cold-pressed juices</div>
+        <div class="price">8 oz · $42 &nbsp;|&nbsp; 16 oz · $54</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Wellness Juice Bundle</div>
+        <div class="desc">8 hydration- and immunity-focused juices</div>
+        <div class="price">8 oz · $56 &nbsp;|&nbsp; 16 oz · $72</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Office Juice Bundle</div>
+        <div class="desc">12 assorted cold-pressed juices</div>
+        <div class="price">8 oz · $84 &nbsp;|&nbsp; 16 oz · $108</div>
+      </div>
+      <p style="font-family: var(--sans); font-size: 10pt; color: var(--warm-gray); font-style: italic; margin-top: 4px;">Choose your flavors or let us curate the selection.</p>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">14</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 15 — SMOOTHIES
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-15" style="padding: 24px 0 42px;">
+  <div class="section-header" style="margin-bottom: 2px;">
+    <h2>SMOOTHIES</h2>
+  </div>
+  <p class="section-intro" style="margin-bottom: 12px; font-size: 10pt;">Blended to order with real fruit, plant-based milks, and functional add-ins.</p>
+
+  <div class="two-col" style="font-size: 0.85em; gap: 32px;" id="smoothie-grid">
+    <!-- Column 1 -->
+    <div>
+      <div class="menu-item">
+        <div class="name">Nutty Professor</div>
+        <div class="desc">Vegan chocolate protein, medjool dates, cacao nibs, peanut butter, oat milk</div>
+        <div class="price">$10.75</div>
+        <div class="allergens">Contains: Peanuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Pistachio Protein</div>
+        <div class="desc">Pistachio, spinach, dates, oat milk, vanilla protein</div>
+        <div class="price">$9.95</div>
+        <div class="allergens">Contains: Tree Nuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Coffee Cake</div>
+        <div class="desc">Cold brew, coconut milk, dates, coconut flakes, granola, walnuts</div>
+        <div class="price">$9.95</div>
+        <div class="allergens">Contains: Coconut, Tree Nuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Grasshopper</div>
+        <div class="desc">Spinach, cashews, dates, cacao nibs, peppermint, oat milk</div>
+        <div class="price">$9.75</div>
+        <div class="allergens">Contains: Tree Nuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Blueberry Muffin</div>
+        <div class="desc">Blueberries, dates, oat milk, granola, lemon juice, vegan protein</div>
+        <div class="price">$9.75</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Boston Bulldog</div>
+        <div class="desc">Strawberries, blueberries, banana, vanilla vegan protein, oat milk</div>
+        <div class="price">$9.95</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Row the Charles</div>
+        <div class="desc">Strawberries, banana, blueberries, blackberries, agave, almond milk</div>
+        <div class="price">$8.95</div>
+        <div class="allergens">Contains: Tree Nuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Healthy Elvis</div>
+        <div class="desc">Banana, peanut butter, medjool dates, oat milk</div>
+        <div class="price">$8.95</div>
+        <div class="allergens">Contains: Peanuts</div>
+      </div>
+    </div>
+
+    <!-- Column 2 -->
+    <div>
+      <div class="menu-item">
+        <div class="name">PB &amp; J</div>
+        <div class="desc">Strawberries, dates, blueberries, peanut butter, oat milk</div>
+        <div class="price">$9.25</div>
+        <div class="allergens">Contains: Peanuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Vanilla Cream</div>
+        <div class="desc">Medjool dates, almonds, vanilla extract, oat milk</div>
+        <div class="price">$9.25</div>
+        <div class="allergens">Contains: Tree Nuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Strawberry Shortcake</div>
+        <div class="desc">Strawberries, medjool dates, vanilla, granola, coconut milk</div>
+        <div class="price">$9.25</div>
+        <div class="allergens">Contains: Coconut</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Dr. Green Mango</div>
+        <div class="desc">Spinach, mango, coconut flakes, pineapple, banana, fresh orange</div>
+        <div class="price">$8.95</div>
+        <div class="allergens">Contains: Coconut</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Green Energy</div>
+        <div class="desc">Kale, green apple, spinach, banana, almonds, matcha, oat milk</div>
+        <div class="price">$8.50</div>
+        <div class="allergens">Contains: Tree Nuts</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Strawberry Banana</div>
+        <div class="desc">Strawberry &amp; banana — the classic</div>
+        <div class="price">$7.95</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Live Right</div>
+        <div class="desc">Mango, pineapple, banana, goji berries, coconut milk</div>
+        <div class="price">$8.75</div>
+        <div class="allergens">Contains: Coconut</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Piña Colada</div>
+        <div class="desc">Pineapple, banana, coconut flakes, agave, coconut milk</div>
+        <div class="price">$7.50</div>
+        <div class="allergens">Contains: Coconut</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Make Your Own Smoothie</div>
+        <div class="desc">Choose your base, fruits, and add-ins</div>
+        <div class="price">$8.50</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number" style="bottom: 8px;">15</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 16 — SNACKS & SIDES DIVIDER
+     ═════════════════════════════════════════════════════════ -->
+<section class="page page-photo" style="background-image: linear-gradient(to bottom, rgba(45,58,26,0.2) 0%, rgba(45,58,26,0.55) 100%), url('/menu-photos/snacks.jpg');" id="page-16">
+  <div class="inset-border"></div>
+  <div class="section-label">
+    <span class="brand">LIVITE</span>
+    <span class="title">SNACKS &amp; SIDES</span>
+  </div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 17 — SIDES & SNACKS
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-17" style="padding: 32px 0 50px;">
+  <div class="two-col" style="padding-top: 10px;">
+    <!-- Column 1: Sides -->
+    <div>
+      <div class="sub-header">SIDES</div>
+      <div style="height: 12px;"></div>
+
+      <div class="menu-item">
+        <div class="name">Plantain Chips</div>
+        <div class="desc">Our signature crispy plantain chips, served family style</div>
+        <div class="price">Small (serves 8–10) · $24<br>Large (serves 15–20) · $32</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Fresh House-Made Guacamole</div>
+        <div class="price">Add Pint · $14 &nbsp;|&nbsp; Add Quart · $26</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Seasonal Vegetable Platter</div>
+        <div class="desc">Assorted seasonal vegetables with house-made hummus</div>
+        <div class="price">Small · $40 &nbsp;|&nbsp; Large · $68</div>
+        <div class="allergens">Contains: Sesame</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Carrot &amp; Hummus Snack Cup</div>
+        <div class="desc">Fresh-cut carrots with house-made hummus</div>
+        <div class="price">$5.50</div>
+        <div class="allergens">Contains: Sesame</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Dirty Potato Chips</div>
+        <div class="desc">Salt &amp; vinegar, funky fusion, sour cream &amp; onion, sea salt</div>
+        <div class="price">$2.95</div>
+        <div class="allergens">Contains: Dairy (varies by flavor)</div>
+      </div>
+    </div>
+
+    <!-- Column 2: Desserts -->
+    <div>
+      <div class="sub-header">DESSERTS</div>
+      <p class="sub-note">Baked fresh and perfect for sharing.</p>
+
+      <div class="menu-item">
+        <div class="name">Livite Chocolate Chip Cookie Box <span class="tag">(VG)</span></div>
+        <div class="price">Small (12 cookies) · $42<br>Large (24 cookies) · $84</div>
+        <div class="allergens">Contains: Wheat</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Cookies + Brownies Box</div>
+        <div class="desc">Assorted Livite chocolate chips and brownies</div>
+        <div class="price">Small (12 pieces) · $42<br>Medium (24 pieces) · $78</div>
+        <div class="allergens">Contains: Wheat, Eggs (varies)</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Livite Dessert Box</div>
+        <div class="desc">Cookies, brownies, and dessert bars</div>
+        <div class="price">Small (12 pieces) · $45<br>Medium (24 pieces) · $85</div>
+        <div class="allergens">Contains: Wheat, Eggs, Dairy (varies)</div>
+      </div>
+      <div class="menu-item" style="border-bottom: none;">
+        <div class="desc" style="font-style: italic;">Choose from: Ginger Molasses, Oatmeal Raisin, Peanut Butter, Toffee Heath, Banana Snickerdoodle (VG), Coconut Cookie (VG), Lemon Square, Apricot Oat Bar, Raspberry Oat Bar, Seven Layer Bar</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">17</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 18 — BEVERAGES
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-18" style="padding: 32px 0 50px;">
+  <div class="section-header" style="margin-bottom: 20px;">
+    <h2>BEVERAGES</h2>
+  </div>
+
+  <div class="two-col">
+    <!-- Column 1: House Beverages -->
+    <div>
+      <div class="sub-header">HOUSE BEVERAGES</div>
+      <div style="height: 12px;"></div>
+
+      <div class="menu-item">
+        <div class="name">Iced Blood Orange Vanilla Tea</div>
+        <div class="desc">Caffeine-free</div>
+        <div class="price">$4.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Blood Orange Hibiscus</div>
+        <div class="desc">Herbal tea · Fruity, citrus, sweet</div>
+        <div class="price">$4.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Peaflower Blossom</div>
+        <div class="desc">Green tea with jasmine, lemongrass &amp; elderberry. A beautiful blue that turns violet with citrus</div>
+        <div class="price">$4.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Iced Black Tea</div>
+        <div class="desc">Ceylon iced tea blend</div>
+        <div class="price">$4.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Strawberry Lemonade</div>
+        <div class="desc">Fresh lemon juice and house-made strawberry syrup</div>
+        <div class="price">$4.50</div>
+      </div>
+    </div>
+
+    <!-- Column 2: Bottled -->
+    <div>
+      <div class="sub-header">BOTTLED BEVERAGES</div>
+      <div style="height: 12px;"></div>
+
+      <div class="menu-item">
+        <div class="name">Spindrift</div>
+        <div class="desc">Grapefruit, lemon, raspberry, lime</div>
+        <div class="price">$2.95</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Spring Water</div>
+        <div class="price">$1.50</div>
+      </div>
+      <div class="menu-item">
+        <div class="name">Sparkling Water</div>
+        <div class="price">$3.00</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">18</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 19 — CATERING FAQS
+     ═════════════════════════════════════════════════════════ -->
+<section class="page" id="page-19" style="padding: 32px 0 50px;">
+  <div class="section-header" style="margin-bottom: 24px;">
+    <h2>CATERING FAQ</h2>
+  </div>
+
+  <div class="two-col">
+    <!-- Column 1 -->
+    <div>
+      <div class="faq-item">
+        <div class="question">HOW FAR IN ADVANCE SHOULD I PLACE MY ORDER?</div>
+        <div class="answer">24–48 hours recommended. Last-minute? Email us and we'll do our best.</div>
+      </div>
+      <div class="faq-item">
+        <div class="question">HOW DO I PLACE AN ORDER?</div>
+        <div class="answer">· Email catering@livite.com<br>· Order online at livite.com</div>
+      </div>
+      <div class="faq-item">
+        <div class="question">IS THERE A MINIMUM?</div>
+        <div class="answer">$100 before tax and delivery.</div>
+      </div>
+      <div class="faq-item">
+        <div class="question">WHAT IS THE DELIVERY FEE?</div>
+        <div class="answer">$30 flat delivery fee within 25 miles of Brookline. Covers professional delivery and careful handling. Not a driver gratuity.</div>
+      </div>
+      <div class="faq-item">
+        <div class="question">DO YOU DELIVER TO MY AREA?</div>
+        <div class="answer">We deliver within 25 miles of our Brookline location. That covers most of Greater Boston, the South Shore, MetroWest, and the North Shore.</div>
+      </div>
+      <div class="faq-item">
+        <div class="question">WHAT IS THE DELIVERY WINDOW?</div>
+        <div class="answer">30-minute scheduled window. Please have someone available to receive.</div>
+      </div>
+      <div class="faq-item">
+        <div class="question">DO YOU OFFER PICKUP?</div>
+        <div class="answer">Yes. Same $100 minimum, no delivery fee.</div>
+      </div>
+    </div>
+
+    <!-- Column 2 -->
+    <div>
+      <div class="faq-item">
+        <div class="question">WHAT IS YOUR CANCELLATION POLICY?</div>
+        <div class="answer">24 hours' notice required. Cancellations within 24 hours may incur a fee if food has been prepared.</div>
+      </div>
+      <div class="faq-item">
+        <div class="question">DOES CATERING INCLUDE PLATES AND UTENSILS?</div>
+        <div class="answer">Yes. Disposable plates, napkins, and serving utensils included with all orders.</div>
+      </div>
+      <div class="faq-item">
+        <div class="question">CAN YOU ACCOMMODATE DIETARY RESTRICTIONS?</div>
+        <div class="answer">Yes — vegetarian, vegan, and gluten-free options throughout. Note any allergies when ordering.</div>
+      </div>
+      <div class="faq-item">
+        <div class="question">NEED HELP PLANNING YOUR ORDER?</div>
+        <div class="answer">Email catering@livite.com and we're happy to help with menu selections and quantities.</div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer">LIVITE</div>
+  <div class="page-number">19</div>
+</section>
+
+<!-- ═════════════════════════════════════════════════════════
+     PAGE 20 — BACK COVER
+     ═════════════════════════════════════════════════════════ -->
+<section class="page page-photo" style="background-image: linear-gradient(to bottom, rgba(45,58,26,0.25) 0%, rgba(45,58,26,0.6) 100%), url('/menu-photos/backcover.jpg');" id="page-20">
+  <div style="position: absolute; bottom: 0; left: 0; right: 0; padding: 40px;">
+    <div style="background: rgba(74, 94, 42, 0.92); border-radius: 12px; padding: 32px 40px; display: flex; align-items: center; gap: 32px;">
+      <div style="flex: 1;">
+        <img src="/web/public/logo.png" class="logo-white" alt="Livite" style="width: 160px; margin-bottom: 12px;">
+        <div style="font-family: var(--sans); color: #fff; font-size: 10pt; line-height: 1.8;">
+          Available 7 days a week<br>
+          $100 minimum · 24-hour notice recommended
+        </div>
+        <div style="font-family: var(--sans); color: #fff; font-size: 10pt; margin-top: 8px;">
+          catering@livite.com
+        </div>
+      </div>
+      <div style="text-align: center;">
+        <div style="width: 100px; height: 100px; background: #fff; border-radius: 8px; overflow: hidden; margin-bottom: 8px;">
+          <img src="/menu-photos/qr-catering.png" alt="Scan to order at livite.com/catering" style="width: 100%; height: 100%; object-fit: contain; padding: 4px;">
+        </div>
+        <div style="font-family: var(--sans); color: #fff; font-size: 14pt; font-weight: 700; letter-spacing: 0.02em;">ORDER LIVITE<br>CATERING</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Page counter on scroll
+  const pages = document.querySelectorAll('.page');
+  const nav = document.getElementById('pageNav');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting && entry.intersectionRatio > 0.3) {
+        const id = entry.target.id;
+        const num = id ? id.replace('page-', '') : '?';
+        nav.textContent = `Page ${num} of 20`;
+      }
+    });
+  }, { threshold: 0.3 });
+  pages.forEach(p => observer.observe(p));
+</script>
+
+</body>
+</html>
