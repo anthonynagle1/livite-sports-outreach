@@ -617,6 +617,44 @@ def livite_deal_extra_props(row):
     return props
 
 
+# ── Contact "last touched anywhere" deal property ────────────────────────────
+# HubSpot auto-maintains notes_last_contacted on the Contact object — it
+# updates whenever any email/call/note is logged against that person from
+# ANY deal. We copy it onto each deal so the "last time we talked to this
+# coach" date is visible in About this deal without opening the contact.
+CONTACT_LAST_TOUCHED_PROPERTY = 'livite_contact_last_touched'
+_ensured_last_touched_prop = set()
+_LAST_TOUCHED_PROP_MARKER = os.path.join(REPO, '.hubspot_contact_last_touched_property_created')
+
+
+def ensure_contact_last_touched_property(key):
+    if 'done' in _ensured_last_touched_prop or os.path.exists(_LAST_TOUCHED_PROP_MARKER):
+        return
+    r = requests.get(f'{HS}/crm/v3/properties/deals/{CONTACT_LAST_TOUCHED_PROPERTY}',
+                     headers={'Authorization': f'Bearer {key}'}, timeout=30)
+    if r.status_code == 404:
+        hs_request('POST', '/crm/v3/properties/deals', key, json={
+            'name': CONTACT_LAST_TOUCHED_PROPERTY,
+            'label': 'Contact Last Touched (any deal)',
+            'type': 'datetime', 'fieldType': 'date',
+            'groupName': 'dealinformation',
+            'description': 'Auto-copied from the contact\'s HubSpot "Last Contacted" '
+                           'timestamp each nightly sync. Reflects the last time any '
+                           'email, call, or note was logged against this coach from '
+                           'any deal — not just this one.'})
+    open(_LAST_TOUCHED_PROP_MARKER, 'w').close()
+    _ensured_last_touched_prop.add('done')
+
+
+def get_contact_last_touched(key, contact_id):
+    """Return the contact's notes_last_contacted UTC timestamp string, or ''."""
+    if not contact_id:
+        return ''
+    r = hs_request('GET', f'/crm/v3/objects/contacts/{contact_id}', key,
+                   params={'properties': 'notes_last_contacted'})
+    return r.get('properties', {}).get('notes_last_contacted') or ''
+
+
 # ── Contact history deal property ────────────────────────────────────────────
 # One-line summary of all OTHER deals for the same contact, visible at a
 # glance in the deal panel without clicking into the contact. Example:
@@ -761,7 +799,8 @@ def find_deal(key, row, pipeline_id):
                        'livite_game_date_full',
                        'livite_visit_number', 'livite_other_boston_dates',
                        'livite_visit_pattern', 'livite_days_to_next_visit',
-                       'livite_history', CONTACT_HISTORY_PROPERTY], 'limit': 1})
+                       'livite_history', CONTACT_HISTORY_PROPERTY,
+                       CONTACT_LAST_TOUCHED_PROPERTY], 'limit': 1})
     hits = res.get('results', [])
     return hits[0] if hits else None
 
@@ -789,9 +828,10 @@ def reconcile_deal_contact(key, deal_id, contact_id):
 
 
 def upsert_deal(key, row, contact_id, company_id, pipeline_id, stage_ids,
-                exact_keys=None, contact_rows=None):
+                exact_keys=None, contact_rows=None, contact_last_touched=None):
     ensure_past_client_deal_property(key)
     ensure_contact_history_property(key)
+    ensure_contact_last_touched_property(key)
     name = deal_name(row)
     label = SHEET_TO_LABEL.get(row['stage'], 'Not Started')
     stage_id = stage_ids[label]
@@ -803,6 +843,9 @@ def upsert_deal(key, row, contact_id, company_id, pipeline_id, stage_ids,
     if contact_rows is not None:
         history_str = build_contact_history_string(game_key(row), contact_rows)
         extra[CONTACT_HISTORY_PROPERTY] = history_str
+    # Copy contact's "last touched anywhere" timestamp onto the deal
+    if contact_last_touched:
+        extra[CONTACT_LAST_TOUCHED_PROPERTY] = contact_last_touched
     if existing:
         changes = {}
         if existing['properties'].get('dealname') != name:
@@ -1072,9 +1115,11 @@ def cmd_import(key, start=0, limit=None, sleep_s=0.25):
         cid, new = upsert_contact(key, row, company_id)
         if new:
             stats['contacts_new'] += 1
+        last_touched = get_contact_last_touched(key, cid)
         _, what = upsert_deal(key, row, cid, company_id, pipeline_id, stage_ids,
                               exact_keys,
-                              contact_rows=contact_rows_index.get(row['email'], []))
+                              contact_rows=contact_rows_index.get(row['email'], []),
+                              contact_last_touched=last_touched)
         stats[what] += 1
         time.sleep(sleep_s)  # stay under rate limits
     if end < total:
