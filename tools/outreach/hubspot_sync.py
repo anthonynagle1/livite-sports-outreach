@@ -830,6 +830,9 @@ def upsert_deal(key, row, contact_id, company_id, pipeline_id, stage_ids,
         if changes:
             hs_request('PATCH', f"/crm/v3/objects/deals/{existing['id']}", key,
                        json={'properties': changes})
+            # Post a timeline note only when the history text itself changed
+            if CONTACT_HISTORY_PROPERTY in changes and changes[CONTACT_HISTORY_PROPERTY]:
+                log_history_note(key, existing['id'], changes[CONTACT_HISTORY_PROPERTY])
             return existing['id'], 'updated'
         return existing['id'], ('updated' if contact_changed else 'unchanged')
     props = {'dealname': name, 'pipeline': pipeline_id, 'dealstage': stage_id,
@@ -845,6 +848,10 @@ def upsert_deal(key, row, contact_id, company_id, pipeline_id, stage_ids,
             {'associationCategory': 'HUBSPOT_DEFINED', 'associationTypeId': 5}]})
     d = hs_request('POST', '/crm/v3/objects/deals', key, json={
         'properties': props, 'associations': associations})
+    # For a brand-new deal, post the history note immediately if non-empty
+    history_str = extra.get(CONTACT_HISTORY_PROPERTY, '')
+    if history_str:
+        log_history_note(key, d['id'], history_str)
     return d['id'], 'created'
 
 
@@ -948,6 +955,25 @@ def log_note(key, contact_id, body):
                        .strftime('%Y-%m-%dT%H:%M:%SZ')},
         'associations': [{'to': {'id': contact_id}, 'types': [
             {'associationCategory': 'HUBSPOT_DEFINED', 'associationTypeId': 202}]}]})
+
+
+def log_history_note(key, deal_id, history_str):
+    """Pin a contact-history summary note on a deal.
+
+    Only called when the history string is non-empty AND has changed since
+    the last sync — so the deal timeline gets one note per change, not one
+    per nightly run.
+    """
+    # Pipe-separated → one line per game for readability in the timeline
+    lines = '\n'.join(f'  • {entry}' for entry in history_str.split(' | '))
+    body = f'📋 Contact outreach history (other games for this coach):\n{lines}'
+    hs_request('POST', '/crm/v3/objects/notes', key, json={
+        'properties': {'hs_note_body': body[:65000],
+                       'hs_timestamp': datetime.datetime.utcnow()
+                       .strftime('%Y-%m-%dT%H:%M:%SZ')},
+        # 214 = HUBSPOT_DEFINED note → deal association
+        'associations': [{'to': {'id': deal_id}, 'types': [
+            {'associationCategory': 'HUBSPOT_DEFINED', 'associationTypeId': 214}]}]})
 
 
 def setup_home_pipeline(key):
