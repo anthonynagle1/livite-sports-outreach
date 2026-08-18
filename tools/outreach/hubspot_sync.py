@@ -948,13 +948,20 @@ def upsert_home_deal(key, row, contact_id, company_id, pipeline_id, stage_ids,
     return d['id'], 'created'
 
 
-def log_note(key, contact_id, body):
+def log_note(key, contact_id, body, deal_id=None):
+    """Log a note on a contact (and optionally on a deal) so it appears in
+    both the contact's and deal's activity timelines."""
+    associations = [{'to': {'id': contact_id}, 'types': [
+        {'associationCategory': 'HUBSPOT_DEFINED', 'associationTypeId': 202}]}]
+    if deal_id:
+        # 214 = HUBSPOT_DEFINED note → deal
+        associations.append({'to': {'id': deal_id}, 'types': [
+            {'associationCategory': 'HUBSPOT_DEFINED', 'associationTypeId': 214}]})
     hs_request('POST', '/crm/v3/objects/notes', key, json={
         'properties': {'hs_note_body': body[:65000],
                        'hs_timestamp': datetime.datetime.utcnow()
                        .strftime('%Y-%m-%dT%H:%M:%SZ')},
-        'associations': [{'to': {'id': contact_id}, 'types': [
-            {'associationCategory': 'HUBSPOT_DEFINED', 'associationTypeId': 202}]}]})
+        'associations': associations})
 
 
 def log_history_note(key, deal_id, history_str):
@@ -1087,10 +1094,12 @@ def cmd_log_send(key, row_num, body):
         sys.exit(f'Sheet row {row_num} not found / not syncable.')
     company_id, _ = upsert_company(key, row, school_totals)
     cid, _ = upsert_contact(key, row, company_id)
-    upsert_deal(key, row, cid, company_id, pipeline_id, stage_ids, exact_keys)
+    deal_id, _ = upsert_deal(key, row, cid, company_id, pipeline_id, stage_ids, exact_keys)
     if body:
+        # Associate the note with both the contact AND the deal so it shows
+        # in the deal's activity timeline, not just the contact record.
         log_note(key, cid, f'Outreach email sent ({row["stage"]}) — '
-                 f'{deal_name(row)}\n\n{body}')
+                 f'{deal_name(row)}\n\n{body}', deal_id=deal_id)
     print(f'Logged send for row {row_num} ({row["email"]}).')
 
 
