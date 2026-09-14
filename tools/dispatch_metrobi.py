@@ -26,8 +26,8 @@ from datetime import datetime
 
 ENV_PATH = '/Users/anthonynagle/Documents/Agentic Workflows/Livite Main Agent/.env'
 METROBI_API_URL = 'https://delivery-api.metrobi.com/api/v1/delivery'
-PICKUP_ADDRESS = '1369 Washington St, Boston MA 02118'
-PICKUP_NAME = 'Livite Washington Square'
+PICKUP_ADDRESS = '1644 Beacon St, Brookline MA 02446'
+PICKUP_NAME = 'Livite'
 PICKUP_PHONE = '6174217548'
 
 
