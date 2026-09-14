@@ -91,12 +91,16 @@ def build_payload(props, self_managed):
 
     delivery_notes = rt_text(props.get('Delivery Notes (350 char MAX)', {}))
 
-    # Parse recipient phone from delivery notes: "Call Name (617) 123-4567"
+    # Parse recipient phone and email from delivery notes
     dropoff_phone = None
+    dropoff_email = None
     if delivery_notes:
         m = re.search(r'\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}', delivery_notes)
         if m:
             dropoff_phone = re.sub(r'[^\d]', '', m.group())  # digits only
+        em = re.search(r'[\w.\-+]+@[\w.\-]+\.[a-z]{2,}', delivery_notes)
+        if em:
+            dropoff_email = em.group()
 
     pickup_stop = {
         'address': PICKUP_ADDRESS,
@@ -107,8 +111,13 @@ def build_payload(props, self_managed):
         'address': delivery_address,
         'name': order_name,
     }
+    dropoff_contact = {}
     if dropoff_phone:
-        dropoff_stop['contact'] = {'phone': dropoff_phone}
+        dropoff_contact['phone'] = dropoff_phone
+    if dropoff_email:
+        dropoff_contact['email'] = dropoff_email
+    if dropoff_contact:
+        dropoff_stop['contact'] = dropoff_contact
     if delivery_notes:
         dropoff_stop['instructions'] = delivery_notes[:500]
 
