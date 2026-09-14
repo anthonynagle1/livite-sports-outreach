@@ -17,6 +17,7 @@ After a successful dispatch:
   - Sets Order Status = "Driver Assigned"
 """
 
+import re
 import sys
 import json
 import time
@@ -88,8 +89,14 @@ def build_payload(props, self_managed):
     order_name = ''.join(t['plain_text'] for t in props.get('Order Name', {}).get('title', []))
     delivery_notes = rt_text(props.get('Delivery Notes (350 char MAX)', {}))
 
-    driver_phone = rt_text(props.get('Driver Phone', {}))
     delivery_notes = rt_text(props.get('Delivery Notes (350 char MAX)', {}))
+
+    # Parse recipient phone from delivery notes: "Call Name (617) 123-4567"
+    dropoff_phone = None
+    if delivery_notes:
+        m = re.search(r'\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}', delivery_notes)
+        if m:
+            dropoff_phone = re.sub(r'[^\d]', '', m.group())  # digits only
 
     pickup_stop = {
         'address': PICKUP_ADDRESS,
@@ -100,8 +107,8 @@ def build_payload(props, self_managed):
         'address': delivery_address,
         'name': order_name,
     }
-    if driver_phone:
-        dropoff_stop['contact'] = {'phone': driver_phone}
+    if dropoff_phone:
+        dropoff_stop['contact'] = {'phone': dropoff_phone}
     if delivery_notes:
         dropoff_stop['instructions'] = delivery_notes[:500]
 
