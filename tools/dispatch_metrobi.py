@@ -60,28 +60,25 @@ def build_payload(props, self_managed):
         print('ERROR: Delivery Date & Time is empty on this page.')
         sys.exit(1)
 
+    # Pickup window — Metrobi uses {"date": "YYYY-MM-DD", "time": "HH:MM"} (24h, no seconds)
+    # The API auto-sets a 15-min window after the given time.
+    date_part = del_dt_raw[:10]  # YYYY-MM-DD
     pickup_window_raw = rt_text(props.get('Metrobi Pickup Window', {}))
-    pickup_start_iso = del_dt_raw
-    pickup_end_iso = del_dt_raw
+    pickup_time_str = '12:00'  # fallback
 
     if '–' in pickup_window_raw:
-        parts = [p.strip() for p in pickup_window_raw.split('–')]
-        if len(parts) == 2:
-            date_part = del_dt_raw[:10]
-            tz_offset = del_dt_raw[-6:] if len(del_dt_raw) > 19 else '-04:00'
-
-            def parse_time(t_str, date, tz):
-                t_str = t_str.strip()
-                for fmt in ['%I:%M %p', '%I %p']:
-                    try:
-                        t = datetime.strptime(f'{date} {t_str}', f'%Y-%m-%d {fmt}')
-                        return t.strftime('%Y-%m-%dT%H:%M:%S') + tz
-                    except ValueError:
-                        continue
-                return del_dt_raw
-
-            pickup_start_iso = parse_time(parts[0], date_part, tz_offset)
-            pickup_end_iso = parse_time(parts[1], date_part, tz_offset)
+        start_part = pickup_window_raw.split('–')[0].strip()
+        try:
+            t_obj = datetime.strptime(start_part, '%I:%M %p')
+            pickup_time_str = t_obj.strftime('%H:%M')
+        except ValueError:
+            try:
+                t_obj = datetime.strptime(start_part, '%I %p')
+                pickup_time_str = t_obj.strftime('%H:%M')
+            except ValueError:
+                pass
+    elif del_dt_raw and 'T' in del_dt_raw:
+        pickup_time_str = del_dt_raw[11:16]  # HH:MM from ISO
 
     delivery_address = rt_text(props.get('Delivery Address', {}))
     if not delivery_address:
@@ -89,26 +86,33 @@ def build_payload(props, self_managed):
         sys.exit(1)
 
     order_name = ''.join(t['plain_text'] for t in props.get('Order Name', {}).get('title', []))
+    delivery_notes = rt_text(props.get('Delivery Notes (350 char MAX)', {}))
+
     driver_phone = rt_text(props.get('Driver Phone', {}))
     delivery_notes = rt_text(props.get('Delivery Notes (350 char MAX)', {}))
+
+    pickup_stop = {
+        'address': PICKUP_ADDRESS,
+        'name': PICKUP_NAME,
+        'contact': {'phone': PICKUP_PHONE},
+    }
+    dropoff_stop = {
+        'address': delivery_address,
+        'name': order_name,
+    }
+    if driver_phone:
+        dropoff_stop['contact'] = {'phone': driver_phone}
+    if delivery_notes:
+        dropoff_stop['instructions'] = delivery_notes[:500]
 
     payload = {
         'cargo_size': 'medium',
         'pickup_time': {
-            'start': pickup_start_iso,
-            'end': pickup_end_iso,
+            'date': date_part,
+            'time': pickup_time_str,
         },
-        'pickup_stop': {
-            'address': PICKUP_ADDRESS,
-            'name': PICKUP_NAME,
-            'phone': PICKUP_PHONE,
-        },
-        'dropoff_stop': {
-            'address': delivery_address,
-            'name': order_name,
-            'phone': driver_phone or '',
-            'notes': delivery_notes[:350] if delivery_notes else '',
-        },
+        'pickup_stop': pickup_stop,
+        'dropoff_stop': dropoff_stop,
         'settings': {
             'self_managed': self_managed,
             'merge_delivery': False,
@@ -193,7 +197,7 @@ def main():
 
     dispatch_mode = 'Pedro (self-managed)' if self_managed else 'Metrobi network'
     print(f'Dispatch mode: {dispatch_mode}')
-    print(f'Pickup window: {payload["pickup_time"]["start"]} → {payload["pickup_time"]["end"]}')
+    print(f'Pickup time: {payload["pickup_time"]["date"]} {payload["pickup_time"]["time"]}')
     print(f'Dropoff: {payload["dropoff_stop"]["address"]}')
     print()
 
@@ -210,8 +214,8 @@ def main():
     if r.status_code in (200, 201):
         data = r.json()
         delivery_id = (
-            data.get('response', {}).get('id') or
-            data.get('id') or
+            (data.get('response') or {}).get('data', {}).get('delivery_id') or
+            (data.get('response') or {}).get('id') or
             data.get('delivery_id') or
             'unknown'
         )
