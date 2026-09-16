@@ -14,7 +14,6 @@ Trigger: set Metrobi Approval on the Notion page to one of:
 After a successful dispatch:
   - Sets Metrobi Status = "Scheduled"
   - Sets Metrobi ID = <delivery_id>
-  - Sets Order Status = "Driver Assigned"
 """
 
 import re
@@ -147,7 +146,6 @@ def update_notion_after_dispatch(page_id, delivery_id, notion_headers):
         headers=notion_headers,
         json={
             'properties': {
-                'Order Status':   {'select': {'name': 'Driver Assigned'}},
                 'Metrobi Status': {'rich_text': rt('Scheduled')},
                 'Metrobi ID':     {'rich_text': rt(str(delivery_id))},
             }
